@@ -1,0 +1,38 @@
+# Environment files (often hold API keys, passwords)
+.env
+.env.local
+.env.*.local
+
+# Sensitive configuration
+config/*.json
+config/*.yml
+config/*.yaml
+config/*.key
+config/*.pem
+
+# Secret files
+*.secret
+*.credentials
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+node_modules/
+vendor/
+
+# Build output
+dist/
+build/
+out/
+
+# Logs
+logs/
+*.log
+
+# IDE/editor folders
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
