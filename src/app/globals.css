@@ -3,7 +3,32 @@
 @tailwind utilities;
 
 @layer base {
+  /* ── Light theme (default) ────────────────────────────────── */
   :root {
+    --background: 270 20% 97%;
+    --foreground: 275 20% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 275 20% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 275 20% 12%;
+    --primary: 261 61% 47%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 270 15% 92%;
+    --secondary-foreground: 275 20% 12%;
+    --muted: 270 15% 92%;
+    --muted-foreground: 275 10% 48%;
+    --accent: 220 96% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 270 10% 82%;
+    --input: 270 10% 82%;
+    --ring: 261 61% 47%;
+    --radius: 0.75rem;
+  }
+
+  /* ── Dark theme ───────────────────────────────────────────── */
+  .dark {
     --background: 275 12% 10%;
     --foreground: 0 0% 98%;
     --card: 275 12% 12%;
@@ -50,11 +75,11 @@
   }
 
   .glass {
-    @apply bg-card/40 backdrop-blur-xl border border-white/[0.06];
+    @apply bg-card/40 backdrop-blur-xl border border-black/[0.06] dark:border-white/[0.06];
   }
 
   .glass-strong {
-    @apply bg-card/60 backdrop-blur-2xl border border-white/[0.08];
+    @apply bg-card/60 backdrop-blur-2xl border border-black/[0.08] dark:border-white/[0.08];
   }
 
   .glow-primary {
@@ -96,6 +121,10 @@
 
   .animate-scale-in {
     animation: scale-in 0.4s ease-out both;
+  }
+
+  .animate-theme-spin {
+    animation: theme-spin 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
   }
 
   .hover-lift {
@@ -154,6 +183,12 @@
     opacity: 1;
     transform: scale(1);
   }
+}
+
+@keyframes theme-spin {
+  from { transform: rotate(0deg) scale(1); }
+  50%  { transform: rotate(180deg) scale(0.7); }
+  to   { transform: rotate(360deg) scale(1); }
 }
 
 /* Smooth scrollbar */

@@ -5,17 +5,17 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { ShieldCheck, Loader2, Eye, EyeOff } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { FloatingInput } from '@/components/ui/floating-input';
+import { IELogo } from '@/components/ui/ie-logo';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { gooeyToast } from 'goey-toast';
 
 export default function SignUpPage() {
   const router = useRouter();
   const { signUp, loading } = useAuth();
-  const { toast } = useToast();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -28,139 +28,132 @@ export default function SignUpPage() {
     e.preventDefault();
 
     if (password !== confirmPassword) {
-      toast({ title: 'Passwords do not match', variant: 'destructive' });
+      gooeyToast.error('Passwords do not match');
       return;
     }
 
     if (password.length < 6) {
-      toast({ title: 'Password must be at least 6 characters', variant: 'destructive' });
+      gooeyToast.error('Password too short', { description: 'Must be at least 6 characters.' });
       return;
     }
 
     const { error } = await signUp(email, password, fullName, role);
 
     if (error) {
-      toast({ title: 'Sign up failed', description: error, variant: 'destructive' });
+      gooeyToast.error('Sign up failed', { description: error });
     } else {
-      toast({
-        title: 'Account created!',
-        description: 'Check your email to confirm your account, then log in.',
-      });
+      gooeyToast.success('Account created!', { description: 'Check your email to confirm, then log in.' });
       router.push('/auth/login');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-background relative overflow-hidden">
-      {/* Background effects */}
+    <div className="min-h-screen flex flex-col bg-background relative overflow-hidden">
+      {/* Background blobs */}
       <div className="fixed inset-0 pointer-events-none -z-10">
         <div className="absolute top-[10%] right-[20%] w-[400px] h-[400px] bg-primary/10 blur-[130px] rounded-full animate-pulse-slow" />
-        <div className="absolute bottom-[10%] left-[10%] w-[350px] h-[350px] bg-accent/8 blur-[120px] rounded-full animate-pulse-slow" style={{ animationDelay: '2s' }} />
+        <div className="absolute bottom-[10%] left-[10%] w-[350px] h-[350px] bg-accent/8 blur-[120px] rounded-full animate-pulse-slow [animation-delay:2s]" />
       </div>
 
-      <Card className="w-full max-w-md glass-strong rounded-2xl animate-scale-in my-8">
-        <CardHeader className="text-center space-y-2 pb-2">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center mb-3 glow-primary">
-            <ShieldCheck className="w-7 h-7 text-primary" />
-          </div>
-          <CardTitle className="font-headline text-2xl">Create Account</CardTitle>
-          <CardDescription className="text-muted-foreground/70">Join Integrity Engine — Academic Integrity Intelligence</CardDescription>
-        </CardHeader>
+      {/* Sticky nav */}
+      <nav className="sticky top-0 z-50 flex items-center justify-between px-6 h-14 border-b border-white/[0.06] bg-background/80 backdrop-blur-md">
+        <Link href="/" className="flex items-center gap-2 text-primary hover:opacity-80 transition-opacity">
+          <IELogo className="w-7 h-7" />
+          <span className="font-headline text-sm font-semibold tracking-wide hidden sm:block">IntegrityEngine</span>
+        </Link>
+        <ThemeToggle />
+      </nav>
 
-        <CardContent className="pt-4">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="fullName" className="text-xs font-medium text-muted-foreground">Full Name</Label>
-              <Input
-                id="fullName"
-                placeholder="John Doe"
+      <div className="flex-1 flex items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md glass-strong rounded-2xl animate-scale-in my-4">
+          <CardHeader className="text-center space-y-2 pb-2">
+            <div className="mx-auto w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center mb-3 glow-primary">
+              <IELogo className="w-8 h-8" />
+            </div>
+            <CardTitle className="font-headline text-2xl">Create Account</CardTitle>
+            <CardDescription className="text-muted-foreground/70">Join Integrity Engine — Academic Integrity Intelligence</CardDescription>
+          </CardHeader>
+
+          <CardContent className="pt-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <FloatingInput
+                label="Full Name"
                 value={fullName}
                 onChange={e => setFullName(e.target.value)}
                 required
-                className="h-11 bg-white/[0.03] border-white/[0.08] focus:border-primary/50 transition-colors"
+                autoComplete="name"
               />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-xs font-medium text-muted-foreground">Email</Label>
-              <Input
-                id="email"
+              <FloatingInput
+                label="Email"
                 type="email"
-                placeholder="you@university.edu"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
-                className="h-11 bg-white/[0.03] border-white/[0.08] focus:border-primary/50 transition-colors"
+                autoComplete="email"
               />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPw ? 'text' : 'password'}
-                  placeholder="Min. 6 characters"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                  className="h-11 bg-white/[0.03] border-white/[0.08] focus:border-primary/50 transition-colors pr-10"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setShowPw(!showPw)}
-                >
-                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
+              <FloatingInput
+                label="Password"
+                type={showPw ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                rightElement={
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => setShowPw(v => !v)}
+                  >
+                    {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                }
+              />
 
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword" className="text-xs font-medium text-muted-foreground">Confirm Password</Label>
-              <Input
-                id="confirmPassword"
+              <FloatingInput
+                label="Confirm Password"
                 type="password"
-                placeholder="Re-enter password"
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
                 required
-                className="h-11 bg-white/[0.03] border-white/[0.08] focus:border-primary/50 transition-colors"
+                autoComplete="new-password"
               />
-            </div>
 
-            <div className="space-y-3">
-              <Label className="text-xs font-medium text-muted-foreground">I am a...</Label>
-              <RadioGroup
-                value={role}
-                onValueChange={(v) => setRole(v as 'student' | 'teacher')}
-                className="flex gap-3"
-              >
-                <label htmlFor="role-student" className={`flex-1 flex items-center gap-2.5 rounded-xl border p-3 cursor-pointer transition-all ${role === 'student' ? 'border-primary/50 bg-primary/5' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]'}`}>
-                  <RadioGroupItem value="student" id="role-student" />
-                  <span className="text-sm">Student</span>
-                </label>
-                <label htmlFor="role-teacher" className={`flex-1 flex items-center gap-2.5 rounded-xl border p-3 cursor-pointer transition-all ${role === 'teacher' ? 'border-primary/50 bg-primary/5' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]'}`}>
-                  <RadioGroupItem value="teacher" id="role-teacher" />
-                  <span className="text-sm">Teacher</span>
-                </label>
-              </RadioGroup>
-            </div>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground px-1">I am a...</p>
+                <RadioGroup
+                  value={role}
+                  onValueChange={(v) => setRole(v as 'student' | 'teacher')}
+                  className="flex gap-3"
+                >
+                  <label htmlFor="role-student" className={`flex-1 flex items-center gap-2.5 rounded-xl border p-3 cursor-pointer transition-all ${role === 'student' ? 'border-primary/50 bg-primary/5' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]'}`}>
+                    <RadioGroupItem value="student" id="role-student" />
+                    <span className="text-sm">Student</span>
+                  </label>
+                  <label htmlFor="role-teacher" className={`flex-1 flex items-center gap-2.5 rounded-xl border p-3 cursor-pointer transition-all ${role === 'teacher' ? 'border-primary/50 bg-primary/5' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]'}`}>
+                    <RadioGroupItem value="teacher" id="role-teacher" />
+                    <span className="text-sm">Teacher</span>
+                  </label>
+                </RadioGroup>
+              </div>
 
-            <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 glow-primary mt-2" disabled={loading}>
-              {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Create Account
-            </Button>
-          </form>
+              <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 glow-primary mt-2" disabled={loading}>
+                {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Create Account
+              </Button>
+            </form>
 
-          <p className="text-center text-sm text-muted-foreground/70 mt-6">
-            Already have an account?{' '}
-            <Link href="/auth/login" className="text-primary hover:text-primary/80 font-medium transition-colors">
-              Sign in
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
+            <p className="text-center text-sm text-muted-foreground/70 mt-6">
+              Already have an account?{' '}
+              <Link href="/auth/login" className="text-primary hover:text-primary/80 font-medium transition-colors">
+                Sign in
+              </Link>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

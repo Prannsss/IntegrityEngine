@@ -116,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: {
         data: { full_name: fullName, role },
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'https://integrity-engine.vercel.app'}/auth/login`,
       },
     });
 

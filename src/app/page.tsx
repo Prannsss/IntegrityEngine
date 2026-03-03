@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Shield, Zap, Fingerprint, Search, LogIn, UserPlus, Activity, Lock, BarChart3, ArrowRight } from 'lucide-react';
+import { Zap, Fingerprint, Search, LogIn, UserPlus, Activity, Lock, BarChart3, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { IELogo } from '@/components/ui/ie-logo';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function Home() {
   const { profile, loading } = useAuth();
@@ -31,35 +33,38 @@ export default function Home() {
         }} />
       </div>
       
-      {/* ─── Navigation ──────────────────────────────────────────────────── */}
-      <nav className="max-w-7xl mx-auto px-6 py-6 flex justify-between items-center animate-slide-up">
-        <div className="flex items-center gap-2.5 font-headline text-xl font-bold tracking-tight group">
-          <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center glow-primary transition-all duration-300 group-hover:scale-110">
-            <Shield className="w-5 h-5 text-white" />
+      {/* ─── Sticky Navigation ───────────────────────────────────────────── */}
+      <div className="sticky top-0 z-50 w-full backdrop-blur-xl border-b border-border/30 bg-background/80 transition-all">
+        <nav className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center animate-slide-up">
+          <div className="flex items-center gap-2.5 font-headline text-xl font-bold tracking-tight group">
+            <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center glow-primary transition-all duration-300 group-hover:scale-110">
+              <IELogo className="w-5 h-5" color="white" />
+            </div>
+            <span>Integrity <em className="font-display not-italic" style={{ fontStyle: 'italic' }}>Engine</em></span>
           </div>
-          <span>Integrity <em className="font-display not-italic" style={{ fontStyle: 'italic' }}>Engine</em></span>
-        </div>
-        <div className="flex gap-2">
-          {profile ? (
-            <Link href={profile.role === 'teacher' ? '/teacher' : '/student'}>
-              <Button className="bg-primary hover:bg-primary/90 glow-primary">My Dashboard</Button>
-            </Link>
-          ) : (
-            <>
-              <Link href="/auth/login">
-                <Button variant="ghost" className="hover:bg-white/5 gap-2">
-                  <LogIn className="w-4 h-4" />Sign In
-                </Button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            {profile ? (
+              <Link href={profile.role === 'teacher' ? '/teacher' : '/student'}>
+                <Button className="bg-primary hover:bg-primary/90 glow-primary">My Dashboard</Button>
               </Link>
-              <Link href="/auth/signup">
-                <Button className="bg-primary hover:bg-primary/90 glow-primary gap-2">
-                  <UserPlus className="w-4 h-4" />Sign Up
-                </Button>
-              </Link>
-            </>
-          )}
-        </div>
-      </nav>
+            ) : (
+              <>
+                <Link href="/auth/login">
+                  <Button variant="ghost" className="hover:bg-white/5 dark:hover:bg-white/5 gap-2">
+                    <LogIn className="w-4 h-4" />Sign In
+                  </Button>
+                </Link>
+                <Link href="/auth/signup">
+                  <Button className="bg-primary hover:bg-primary/90 glow-primary gap-2">
+                    <UserPlus className="w-4 h-4" />Sign Up
+                  </Button>
+                </Link>
+              </>
+            )}
+          </div>
+        </nav>
+      </div>
 
       {/* ─── Hero Section ────────────────────────────────────────────────── */}
       <main className="max-w-7xl mx-auto px-6 pt-20 pb-32">
@@ -203,10 +208,10 @@ export default function Home() {
       </main>
 
       {/* ─── Footer ──────────────────────────────────────────────────────── */}
-      <footer className="max-w-7xl mx-auto px-6 py-10 border-t border-white/[0.04] flex flex-col md:flex-row justify-between items-center gap-6 text-sm text-muted-foreground/60">
+      <footer className="max-w-7xl mx-auto px-6 py-10 border-t border-border/20 flex flex-col md:flex-row justify-between items-center gap-6 text-sm text-muted-foreground/60">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-primary/80 rounded-md flex items-center justify-center">
-            <Shield className="w-3.5 h-3.5 text-white" />
+            <IELogo className="w-4 h-4" color="white" />
           </div>
           <span>Integrity <em className="font-display" style={{ fontStyle: 'italic' }}>Engine</em> &copy; {new Date().getFullYear()}</span>
         </div>

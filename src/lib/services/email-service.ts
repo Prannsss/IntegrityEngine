@@ -68,7 +68,7 @@ export async function sendWelcomeEmail(email: string, fullName: string, role: st
           Your ${role} account is ready. Integrity Engine uses AI-powered keystroke dynamics and stylometric fingerprinting to maintain academic integrity.
         </p>
         <div style="text-align: center;">
-          <a href="${process.env.NEXT_PUBLIC_SUPABASE_URL ? '' : 'http://localhost:9002'}/auth/login"
+          <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://integrity-engine.vercel.app'}/auth/login"
              style="display: inline-block; padding: 12px 32px; background: #612EC0; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
             Sign In
           </a>
@@ -106,7 +106,7 @@ export async function sendQuizAssignedEmail(
           ${dueLine}
         </div>
         <div style="text-align: center;">
-          <a href="${process.env.NEXT_PUBLIC_SUPABASE_URL ? '' : 'http://localhost:9002'}/student"
+          <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://integrity-engine.vercel.app'}/student"
              style="display: inline-block; padding: 12px 32px; background: #612EC0; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
             Start Quiz
           </a>
@@ -144,7 +144,7 @@ export async function sendRiskAlertEmail(
           <p style="margin: 4px 0;"><strong>Risk Score:</strong> <span style="color: ${riskColor}; font-size: 1.2em; font-weight: 700;">${riskScore}%</span></p>
         </div>
         <div style="text-align: center;">
-          <a href="${process.env.NEXT_PUBLIC_SUPABASE_URL ? '' : 'http://localhost:9002'}/teacher"
+          <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://integrity-engine.vercel.app'}/teacher"
              style="display: inline-block; padding: 12px 32px; background: #612EC0; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
             View Dashboard
           </a>
