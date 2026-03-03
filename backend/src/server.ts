@@ -29,6 +29,12 @@ app.use(cors({
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 
+// ─── Root Handler (Render uptime ping / HEAD /) ──────────────────────────────
+
+app.get('/', (_req, res) => {
+  res.json({ name: 'IntegrityEngine API', status: 'ok' });
+});
+
 // ─── Health Check ─────────────────────────────────────────────────────────────
 
 app.get('/api/health', (_req, res) => {
@@ -59,8 +65,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // ─── Start Server ─────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
+  const publicUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
   console.log(`✅ IntegrityEngine API running on port ${PORT}`);
-  console.log(`   Health: http://localhost:${PORT}/api/health`);
+  console.log(`   Health: ${publicUrl}/api/health`);
 });
 
 export default app;
