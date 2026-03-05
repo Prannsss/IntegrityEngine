@@ -1,25 +1,39 @@
-// ═══════════════════════════════════════════════════════════════════════════════
-// Response Model — Supabase queries for quiz responses
-// ═══════════════════════════════════════════════════════════════════════════════
+import { JsonStore } from '../lib/json-store';
 
-import { getServiceClient } from '../config/supabase';
+type QuestionRecord = {
+  id: number;
+  quiz_id: number;
+  question_type: string;
+  correct_answer: string | null;
+  points: number;
+};
+
+type ResponseRecord = {
+  id: number;
+  quiz_assignment_id: number;
+  question_id: number;
+  answer_text: string;
+  selected_option: string | null;
+  is_correct: boolean | null;
+  score: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const questions = new JsonStore<QuestionRecord>('quiz_questions.json');
+const responses = new JsonStore<ResponseRecord>('quiz_responses.json');
 
 export class ResponseModel {
-  private supabase = getServiceClient();
-
-  /** Get questions by IDs (for auto-grading) */
   async getQuestionsByIds(questionIds: string[]) {
-    const { data, error } = await this.supabase
-      .from('quiz_questions')
-      .select('id, question_type, correct_answer, points')
-      .in('id', questionIds);
-
-    if (error) throw error;
-    return data || [];
+    return questions.findIn('id', questionIds.map(Number)).map(q => ({
+      id: q.id,
+      question_type: q.question_type,
+      correct_answer: q.correct_answer,
+      points: q.points,
+    }));
   }
 
-  /** Upsert quiz responses */
-  async upsertResponses(responses: {
+  async upsertResponses(records: {
     quiz_assignment_id: string;
     question_id: string;
     answer_text: string;
@@ -27,10 +41,18 @@ export class ResponseModel {
     is_correct: boolean | null;
     score: number | null;
   }[]) {
-    const { error } = await this.supabase
-      .from('quiz_responses')
-      .upsert(responses, { onConflict: 'quiz_assignment_id,question_id' });
-
-    if (error) throw error;
+    for (const r of records) {
+      responses.upsert(
+        {
+          quiz_assignment_id: Number(r.quiz_assignment_id),
+          question_id: Number(r.question_id),
+          answer_text: r.answer_text,
+          selected_option: r.selected_option,
+          is_correct: r.is_correct,
+          score: r.score,
+        } as any,
+        ['quiz_assignment_id', 'question_id']
+      );
+    }
   }
 }

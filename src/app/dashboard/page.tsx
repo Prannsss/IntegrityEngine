@@ -1,9 +1,10 @@
-import { TeacherDashboard } from '@/components/dashboard/TeacherDashboard';
+/**
+ * @deprecated Legacy dashboard page. Use /teacher instead.
+ * Kept for reference only — uses mock data from TeacherDashboard component.
+ */
+
+import { redirect } from 'next/navigation';
 
 export default function DashboardPage() {
-  return (
-    <div className="min-h-screen bg-background">
-      <TeacherDashboard />
-    </div>
-  );
+  redirect('/teacher');
 }

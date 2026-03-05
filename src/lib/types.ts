@@ -1,38 +1,3 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-
-// Lazy singleton — prevents "supabaseUrl is required" crash during
-// Next.js static prerendering when env vars are not yet available.
-let _client: SupabaseClient | null = null;
-
-function getClient(): SupabaseClient {
-  if (!_client) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key) {
-      throw new Error(
-        'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. ' +
-        'Add them to your Vercel project environment variables.'
-      );
-    }
-    _client = createClient(url, key, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    });
-  }
-  return _client;
-}
-
-// Re-export as a Proxy so all existing `supabase.xxx` call sites keep working
-// without modification, but the client is only instantiated on first access.
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_target, prop: string | symbol) {
-    return Reflect.get(getClient(), prop);
-  },
-});
-
 export type SupabaseProfile = {
   id: string;
   email: string;

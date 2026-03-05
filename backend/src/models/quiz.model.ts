@@ -1,121 +1,145 @@
-// ═══════════════════════════════════════════════════════════════════════════════
-// Quiz Model — Supabase queries for quizzes and questions
-// ═══════════════════════════════════════════════════════════════════════════════
+import { JsonStore } from '../lib/json-store';
 
-import { getServiceClient } from '../config/supabase';
+type QuizRecord = {
+  id: number;
+  teacher_id: string;
+  title: string;
+  description: string;
+  type: 'essay' | 'multiple_choice' | 'mixed';
+  status: string;
+  time_limit_mins: number | null;
+  due_date: string | null;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+type QuestionRecord = {
+  id: number;
+  quiz_id: number;
+  question_text: string;
+  question_type: 'essay' | 'multiple_choice';
+  options: string[] | null;
+  correct_answer: string | null;
+  points: number;
+  sort_order: number;
+  created_at: string;
+};
+
+type AssignmentRecord = {
+  id: number;
+  quiz_id: number;
+  student_id: string;
+  teacher_id: string;
+  status: string;
+  risk_score: number | null;
+  total_score: number | null;
+  max_score: number | null;
+  started_at: string | null;
+  submitted_at: string | null;
+  session_id: string | null;
+  window_changes: number;
+  created_at: string;
+  updated_at: string;
+};
 
 export interface QuizInput {
   title: string;
   description?: string;
   teacher_id: string;
-  time_limit_minutes?: number;
+  type: 'essay' | 'multiple_choice' | 'mixed';
+  time_limit_mins?: number | null;
   status?: string;
-  due_date?: string;
+  due_date?: string | null;
 }
 
 export interface QuestionInput {
-  quiz_id: string;
+  quiz_id: number;
   question_text: string;
   question_type: 'essay' | 'multiple_choice';
-  options?: string[];
-  correct_answer?: string;
+  options?: string[] | null;
+  correct_answer?: string | null;
   points: number;
-  order_index: number;
+  sort_order: number;
 }
+
+const quizzes = new JsonStore<QuizRecord>('quizzes.json');
+const questions = new JsonStore<QuestionRecord>('quiz_questions.json');
+const assignments = new JsonStore<AssignmentRecord>('quiz_assignments.json');
 
 export class QuizModel {
-  private supabase = getServiceClient();
-
-  /** List quizzes for a teacher, with question and assignment counts */
   async listByTeacher(teacherId: string) {
-    const { data, error } = await this.supabase
-      .from('quizzes')
-      .select(`
-        *,
-        quiz_questions(count),
-        quiz_assignments(count)
-      `)
+    const teacherQuizzes = quizzes.query()
       .eq('teacher_id', teacherId)
-      .order('created_at', { ascending: false });
+      .order('created_at', false)
+      .results();
 
-    if (error) throw error;
-    return data;
+    return teacherQuizzes.map(q => ({
+      ...q,
+      quiz_questions: [{ count: questions.count({ quiz_id: q.id } as any) }],
+      quiz_assignments: [{ count: assignments.count({ quiz_id: q.id } as any) }],
+    }));
   }
 
-  /** Get a single quiz with nested questions, assignments, and student profiles */
   async getById(quizId: string) {
-    const { data, error } = await this.supabase
-      .from('quizzes')
-      .select(`
-        *,
-        quiz_questions(*),
-        quiz_assignments(
-          *,
-          profiles:student_id(id, email, full_name, avatar_url)
-        )
-      `)
-      .eq('id', quizId)
-      .single();
+    const quiz = quizzes.findOne({ id: Number(quizId) } as any);
+    if (!quiz) return null;
 
-    if (error) throw error;
-    return data;
+    const profileStore = new JsonStore<any>('profiles.json', { useUuid: true });
+    const quizQuestions = questions.find({ quiz_id: quiz.id } as any);
+    const quizAssignments = assignments.find({ quiz_id: quiz.id } as any);
+
+    const enrichedAssignments = quizAssignments.map(a => {
+      const profile = profileStore.findOne({ id: a.student_id } as any);
+      return {
+        ...a,
+        profiles: profile
+          ? { id: profile.id, email: profile.email, full_name: profile.full_name, avatar_url: profile.avatar_url }
+          : null,
+      };
+    });
+
+    return {
+      ...quiz,
+      quiz_questions: quizQuestions,
+      quiz_assignments: enrichedAssignments,
+    };
   }
 
-  /** Create a quiz */
   async create(input: QuizInput) {
-    const { data, error } = await this.supabase
-      .from('quizzes')
-      .insert(input)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+    return quizzes.insert({
+      teacher_id: input.teacher_id,
+      title: input.title,
+      description: input.description || '',
+      type: input.type,
+      status: input.status || 'draft',
+      time_limit_mins: input.time_limit_mins ?? null,
+      due_date: input.due_date ?? null,
+      settings: {},
+    } as any);
   }
 
-  /** Update a quiz */
   async update(quizId: string, teacherId: string, updates: Partial<QuizInput>) {
-    const { data, error } = await this.supabase
-      .from('quizzes')
-      .update(updates)
-      .eq('id', quizId)
-      .eq('teacher_id', teacherId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+    const results = quizzes.update(
+      { id: Number(quizId), teacher_id: teacherId } as any,
+      updates as any
+    );
+    return results[0] || null;
   }
 
-  /** Delete a quiz (verifies teacher ownership) */
   async delete(quizId: string, teacherId: string) {
-    const { error } = await this.supabase
-      .from('quizzes')
-      .delete()
-      .eq('id', quizId)
-      .eq('teacher_id', teacherId);
-
-    if (error) throw error;
+    questions.delete({ quiz_id: Number(quizId) } as any);
+    assignments.delete({ quiz_id: Number(quizId) } as any);
+    quizzes.delete({ id: Number(quizId), teacher_id: teacherId } as any);
   }
 
-  /** Insert multiple questions for a quiz */
-  async insertQuestions(questions: QuestionInput[]) {
-    const { data, error } = await this.supabase
-      .from('quiz_questions')
-      .insert(questions)
-      .select();
-
-    if (error) throw error;
-    return data;
+  async insertQuestions(qs: QuestionInput[]) {
+    return questions.insertMany(qs as any);
   }
 
-  /** Update quiz status (e.g. draft → published) */
   async updateStatus(quizId: string, status: string) {
-    const { error } = await this.supabase
-      .from('quizzes')
-      .update({ status })
-      .eq('id', quizId);
-
-    if (error) throw error;
+    quizzes.update({ id: Number(quizId) } as any, { status } as any);
   }
 }
+
+export { quizzes as quizzesStore, questions as questionsStore, assignments as assignmentsStore };

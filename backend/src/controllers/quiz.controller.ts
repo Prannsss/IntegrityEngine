@@ -26,7 +26,7 @@ export async function listQuizzes(req: Request, res: Response): Promise<void> {
 
 export async function createQuiz(req: Request, res: Response): Promise<void> {
   try {
-    const { title, description, time_limit_minutes, status, due_date, questions } = req.body;
+    const { title, description, type, time_limit_mins, status, due_date, questions } = req.body;
 
     if (!title) {
       res.status(400).json({ error: 'Title is required' });
@@ -37,12 +37,12 @@ export async function createQuiz(req: Request, res: Response): Promise<void> {
       title,
       description: description || '',
       teacher_id: req.user!.id,
-      time_limit_minutes: time_limit_minutes || null,
+      type: type || 'mixed',
+      time_limit_mins: time_limit_mins ?? null,
       status: status || 'draft',
       due_date: due_date || null,
     });
 
-    // Insert questions if provided
     if (questions?.length) {
       const questionRecords = questions.map((q: any, idx: number) => ({
         quiz_id: quiz.id,
@@ -51,7 +51,7 @@ export async function createQuiz(req: Request, res: Response): Promise<void> {
         options: q.options || null,
         correct_answer: q.correct_answer || null,
         points: q.points || 1,
-        order_index: q.order_index ?? idx,
+        sort_order: q.sort_order ?? idx,
       }));
 
       await quizModel.insertQuestions(questionRecords);
@@ -114,8 +114,7 @@ export async function assignQuiz(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Create assignments
-    const assignments = await assignmentModel.assignToStudents(quizId, student_ids);
+    const assignments = await assignmentModel.assignToStudents(quizId, student_ids, req.user!.id);
 
     // Auto-publish draft quizzes
     await quizModel.updateStatus(quizId, 'published');

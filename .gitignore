@@ -46,3 +46,6 @@ firestore-debug.log
 
 # env
 .env
+
+# local JSON database
+backend/data/*.json

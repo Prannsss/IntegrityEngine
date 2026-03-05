@@ -3,8 +3,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase/client';
-import type { Quiz, QuizAssignment } from '@/lib/supabase/client';
+import type { Quiz, QuizAssignment } from '@/lib/types';
+import * as api from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,14 +37,13 @@ export default function StudentDashboardPage() {
   const fetchAssignments = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from('quiz_assignments')
-      .select('*, quizzes(*)')
-      .eq('student_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setAssignments(data as unknown as AssignmentWithQuiz[]);
+    try {
+      const { assignments: data } = await api.listAssignments();
+      if (data) {
+        setAssignments(data as unknown as AssignmentWithQuiz[]);
+      }
+    } catch (err) {
+      console.error('Failed to load assignments:', err);
     }
     setLoading(false);
   }, [user]);

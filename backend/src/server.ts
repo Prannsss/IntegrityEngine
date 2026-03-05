@@ -1,7 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════════
-// IntegrityEngine API — Express.js Server Entry Point
-// ═══════════════════════════════════════════════════════════════════════════════
-
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -10,11 +6,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+import { authRoutes } from './routes/auth.routes';
 import { quizRoutes } from './routes/quiz.routes';
+import { assignmentRoutes } from './routes/assignment.routes';
 import { telemetryRoutes } from './routes/telemetry.routes';
 import { analysisRoutes } from './routes/analysis.routes';
 import { studentRoutes } from './routes/student.routes';
 import { responseRoutes } from './routes/response.routes';
+import { seedDatabase } from './lib/seed';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -29,10 +28,10 @@ app.use(cors({
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 
-// ─── Root Handler (Render uptime ping / HEAD /) ──────────────────────────────
+// ─── Root Handler ─────────────────────────────────────────────────────────────
 
 app.get('/', (_req, res) => {
-  res.json({ name: 'IntegrityEngine API', status: 'ok' });
+  res.json({ name: 'IntegrityEngine API', status: 'ok', storage: 'local-json' });
 });
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
@@ -43,7 +42,9 @@ app.get('/api/health', (_req, res) => {
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 
+app.use('/api/auth', authRoutes);
 app.use('/api/quizzes', quizRoutes);
+app.use('/api/quiz-assignments', assignmentRoutes);
 app.use('/api/telemetry', telemetryRoutes);
 app.use('/api/analysis', analysisRoutes);
 app.use('/api/students', studentRoutes);
@@ -64,10 +65,17 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  const publicUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-  console.log(`✅ IntegrityEngine API running on port ${PORT}`);
-  console.log(`   Health: ${publicUrl}/api/health`);
-});
+async function start() {
+  console.log('🗄️  Initializing local JSON database...');
+  await seedDatabase();
+
+  app.listen(PORT, () => {
+    console.log(`✅ IntegrityEngine API running on port ${PORT}`);
+    console.log(`   Storage: Local JSON files (backend/data/)`);
+    console.log(`   Health: http://localhost:${PORT}/api/health`);
+  });
+}
+
+start().catch(console.error);
 
 export default app;

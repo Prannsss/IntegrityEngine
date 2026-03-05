@@ -3,8 +3,10 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase/client';
-import type { Quiz, QuizQuestion, QuizAssignment, ReplayEvent, TextSnapshot } from '@/lib/supabase/client';
+import type { Quiz, QuizQuestion, QuizAssignment, ReplayEvent, TextSnapshot } from '@/lib/types';
+import { KeystrokeTracker, type HeartbeatCallback } from '@/lib/telemetry/keystroke-tracker';
+import type { TelemetryPayload } from '@/lib/telemetry/types';
+import * as api from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,11 +40,12 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [resolvedQuizId, setResolvedQuizId] = useState<string>('');
+  const [windowChanges, setWindowChanges] = useState(0);
 
-  // ─── Window change tracking ─────────────────────────────────────────────
+  // ─── Refs ──────────────────────────────────────────────────────────────────
   const sessionIdRef = useRef(`session_${Date.now()}_${Math.random().toString(36).slice(2)}`);
   const blurTimeRef = useRef<number | null>(null);
-  const windowChangesRef = useRef(0);
+  const trackerRef = useRef<KeystrokeTracker | null>(null);
 
   // ─── Replay tracking ───────────────────────────────────────────────────
   const replayEventsRef = useRef<ReplayEvent[]>([]);
@@ -50,39 +53,73 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
   const sessionStartRef = useRef(Date.now());
   const snapshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Resolve params
   useEffect(() => {
     params.then(p => setResolvedQuizId(p.quizId));
   }, [params]);
 
   const qaId = searchParams.get('qa');
 
-  // Fetch quiz data
+  // ─── Heartbeat callback for KeystrokeTracker ──────────────────────────
+  const heartbeatCallback: HeartbeatCallback = useCallback((payload: TelemetryPayload) => {
+    if (!qaId) return;
+    api.postHeartbeat({
+      quiz_assignment_id: qaId,
+      session_id: payload.sessionId,
+      events: payload.events,
+      wpm: payload.metrics.wpm,
+      burst_score: payload.metrics.burstScore,
+      avg_latency: payload.metrics.avgLatency,
+      peak_wpm: payload.metrics.peakWpm,
+      paste_chars: payload.metrics.pasteCharCount,
+      paste_events: payload.metrics.pasteEventCount,
+      total_keys: payload.metrics.totalKeystrokes,
+      wpm_history: payload.metrics.wpmHistory,
+      nonce: payload.nonce,
+      signature: payload.signature,
+    }).catch(console.error);
+  }, [qaId]);
+
+  // ─── Initialize KeystrokeTracker ──────────────────────────────────────
+  useEffect(() => {
+    if (!qaId) return;
+    const tracker = new KeystrokeTracker(qaId, heartbeatCallback);
+    trackerRef.current = tracker;
+    return () => {
+      tracker.destroy();
+      trackerRef.current = null;
+    };
+  }, [qaId, heartbeatCallback]);
+
+  // Fetch quiz data via API
   const fetchData = useCallback(async () => {
     if (!resolvedQuizId || !user) return;
     setLoading(true);
 
-    const [quizRes, questionsRes] = await Promise.all([
-      supabase.from('quizzes').select('*').eq('id', resolvedQuizId).single(),
-      supabase.from('quiz_questions').select('*').eq('quiz_id', resolvedQuizId).order('sort_order'),
-    ]);
-
-    if (quizRes.data) setQuiz(quizRes.data as Quiz);
-    if (questionsRes.data) setQuestions(questionsRes.data as QuizQuestion[]);
-
-    if (qaId) {
-      const { data } = await supabase.from('quiz_assignments').select('*').eq('id', qaId).single();
-      if (data) {
-        setAssignment(data as QuizAssignment);
-        // Mark as in_progress
-        if (data.status === 'assigned') {
-          await supabase.from('quiz_assignments').update({
-            status: 'in_progress',
-            started_at: new Date().toISOString(),
-            session_id: sessionIdRef.current,
-          }).eq('id', qaId);
+    try {
+      const { quiz: quizData } = await api.getQuiz(resolvedQuizId);
+      if (quizData) {
+        setQuiz(quizData as Quiz);
+        if (quizData.quiz_questions) {
+          const sorted = [...quizData.quiz_questions].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          setQuestions(sorted as QuizQuestion[]);
         }
       }
+
+      if (qaId) {
+        const { assignment: assignmentData } = await api.getAssignment(qaId);
+        if (assignmentData) {
+          setAssignment(assignmentData as QuizAssignment);
+          if (assignmentData.status === 'assigned') {
+            await api.updateAssignment(qaId, {
+              status: 'in_progress',
+              started_at: new Date().toISOString(),
+              session_id: sessionIdRef.current,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load quiz:', err);
     }
 
     setLoading(false);
@@ -96,30 +133,24 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
     fetchData();
   }, [fetchData]);
 
-  // ─── Window blur/focus tracking ──────────────────────────────────────
+  // ─── Window blur/focus/visibility tracking ────────────────────────────
   useEffect(() => {
     if (!qaId) return;
 
     const handleBlur = () => {
       blurTimeRef.current = Date.now();
-      windowChangesRef.current++;
+      setWindowChanges(prev => prev + 1);
 
-      // Record replay event
       replayEventsRef.current.push({
         timestamp: Date.now() - sessionStartRef.current,
         type: 'window_change',
         data: { event_type: 'blur' },
       });
 
-      // Send to API
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/telemetry/window-change`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quiz_assignment_id: qaId,
-          session_id: sessionIdRef.current,
-          event_type: 'blur',
-        }),
+      api.postWindowChange({
+        quiz_assignment_id: qaId,
+        session_id: sessionIdRef.current,
+        event_type: 'blur',
       }).catch(console.error);
     };
 
@@ -133,24 +164,27 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
         data: { event_type: 'focus', away_duration_ms: awayMs },
       });
 
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/telemetry/window-change`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quiz_assignment_id: qaId,
-          session_id: sessionIdRef.current,
-          event_type: 'focus',
-          away_duration_ms: awayMs,
-        }),
+      api.postWindowChange({
+        quiz_assignment_id: qaId,
+        session_id: sessionIdRef.current,
+        event_type: 'focus',
+        away_duration_ms: awayMs,
       }).catch(console.error);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) handleBlur();
+      else handleFocus();
     };
 
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [qaId]);
 
@@ -171,10 +205,45 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
     };
   }, [currentQ, questions, answers]);
 
-  // ─── Track keystrokes for replay ─────────────────────────────────────
+  // ─── Best-effort replay submit on page unload ─────────────────────────
+  useEffect(() => {
+    if (!qaId) return;
+
+    const handleBeforeUnload = () => {
+      const durationMs = Date.now() - sessionStartRef.current;
+      const payload = JSON.stringify({
+        quiz_assignment_id: qaId,
+        session_id: sessionIdRef.current,
+        replay_events: replayEventsRef.current,
+        text_snapshots: textSnapshotsRef.current,
+        duration_ms: durationMs,
+        total_events: replayEventsRef.current.length,
+      });
+
+      const url = `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/telemetry/replay`;
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ie_auth_token') : null;
+      const headers: Record<string, string> = { type: 'application/json' };
+
+      // Use fetch with keepalive so auth headers are included (sendBeacon can't send custom headers)
+      if (token) {
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      } else if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [qaId]);
+
+  // ─── Track keystrokes for replay and telemetry ────────────────────────
   const handleAnswerChange = (questionId: string, value: string, type: 'essay' | 'mcq') => {
     if (type === 'essay') {
-      // Record replay event
       replayEventsRef.current.push({
         timestamp: Date.now() - sessionStartRef.current,
         type: 'keystroke',
@@ -204,39 +273,31 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
       selected_option: answers[q.id]?.selected_option || null,
     }));
 
-    // Save replay data
     const durationMs = Date.now() - sessionStartRef.current;
-    await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/telemetry/replay`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quiz_assignment_id: qaId,
-        session_id: sessionIdRef.current,
-        replay_events: replayEventsRef.current,
-        text_snapshots: textSnapshotsRef.current,
-        duration_ms: durationMs,
-        total_events: replayEventsRef.current.length,
-      }),
+    await api.postReplay({
+      quiz_assignment_id: qaId,
+      session_id: sessionIdRef.current,
+      replay_events: replayEventsRef.current,
+      text_snapshots: textSnapshotsRef.current,
+      duration_ms: durationMs,
+      total_events: replayEventsRef.current.length,
     }).catch(console.error);
 
-    // Submit responses
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/quiz-responses/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quiz_assignment_id: qaId, responses }),
-    });
+    try {
+      const data = await api.submitResponses({
+        quiz_assignment_id: qaId,
+        responses,
+      });
+      setSubmitting(false);
 
-    const data = await res.json();
-    setSubmitting(false);
-
-    if (data.success) {
       toast({
         title: 'Quiz submitted!',
         description: data.max_score !== null ? `Score: ${data.total_score}/${data.max_score}` : 'Submitted for review.',
       });
       router.push('/student');
-    } else {
-      toast({ title: 'Submission failed', description: data.error, variant: 'destructive' });
+    } catch (err: any) {
+      setSubmitting(false);
+      toast({ title: 'Submission failed', description: err.message, variant: 'destructive' });
     }
   };
 
@@ -288,10 +349,10 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
             <span className="font-headline text-sm font-semibold">{quiz.title}</span>
           </div>
           <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            {windowChangesRef.current > 0 && (
+            {windowChanges > 0 && (
               <Badge className="text-[10px] bg-red-500/15 text-red-400 border border-red-500/20">
                 <AlertTriangle className="w-3 h-3 mr-1" />
-                {windowChangesRef.current} tab switch{windowChangesRef.current > 1 ? 'es' : ''}
+                {windowChanges} tab switch{windowChanges > 1 ? 'es' : ''}
               </Badge>
             )}
             <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20">
@@ -336,6 +397,9 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
                 className="min-h-[220px] bg-background/30 border-white/[0.06] focus:border-primary/40 rounded-xl text-sm transition-colors resize-none"
                 value={answers[question.id]?.answer_text || ''}
                 onChange={e => handleAnswerChange(question.id, e.target.value, 'essay')}
+                onKeyDown={e => trackerRef.current?.recordKeyDown(e.nativeEvent)}
+                onKeyUp={e => trackerRef.current?.recordKeyUp(e.nativeEvent)}
+                onPaste={e => trackerRef.current?.recordPaste(e.nativeEvent)}
               />
             ) : (
               <RadioGroup

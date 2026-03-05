@@ -3,8 +3,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase/client';
-import type { Quiz, QuizAssignment } from '@/lib/supabase/client';
+import type { Quiz, QuizAssignment } from '@/lib/types';
+import * as api from '@/lib/api/client';
+import type { TelemetrySummary, WindowChangeEntry } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +18,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import {
   ShieldCheck,
   LogOut,
@@ -33,6 +37,11 @@ import {
   Loader2,
   Send,
   GripVertical,
+  Keyboard,
+  Activity,
+  Gauge,
+  Clipboard,
+  MonitorOff,
 } from 'lucide-react';
 
 type StudentSubmission = QuizAssignment & {
@@ -58,6 +67,12 @@ export default function TeacherDashboardPage() {
   const [students, setStudents] = useState<{ id: string; full_name: string; email: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<StudentSubmission | null>(null);
+
+  // ─── Telemetry detail state ────────────────────────────────────────────
+  const [telemetrySummary, setTelemetrySummary] = useState<TelemetrySummary | null>(null);
+  const [windowEvents, setWindowEvents] = useState<WindowChangeEntry[]>([]);
+  const [wpmChartData, setWpmChartData] = useState<{ idx: number; wpm: number }[]>([]);
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
 
   // ─── Quiz Creation State ────────────────────────────────────────────────
   const [showCreate, setShowCreate] = useState(false);
@@ -89,15 +104,19 @@ export default function TeacherDashboardPage() {
     if (!user) return;
     setLoading(true);
 
-    const [quizRes, subRes, studRes] = await Promise.all([
-      supabase.from('quizzes').select('*').eq('teacher_id', user.id).order('created_at', { ascending: false }),
-      supabase.from('quiz_assignments').select('*, profiles:student_id(full_name, email), quizzes(title)').eq('teacher_id', user.id).order('updated_at', { ascending: false }),
-      supabase.from('profiles').select('id, full_name, email').eq('role', 'student').order('full_name'),
-    ]);
+    try {
+      const [quizRes, subRes, studRes] = await Promise.all([
+        api.listQuizzes(),
+        api.listAssignments(),
+        api.listStudents(),
+      ]);
 
-    if (quizRes.data) setQuizzes(quizRes.data as Quiz[]);
-    if (subRes.data) setSubmissions(subRes.data as unknown as StudentSubmission[]);
-    if (studRes.data) setStudents(studRes.data as { id: string; full_name: string; email: string }[]);
+      if (quizRes.quizzes) setQuizzes(quizRes.quizzes as Quiz[]);
+      if (subRes.assignments) setSubmissions(subRes.assignments as unknown as StudentSubmission[]);
+      if (studRes.students) setStudents(studRes.students as { id: string; full_name: string; email: string }[]);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    }
     setLoading(false);
   }, [user]);
 
@@ -107,6 +126,35 @@ export default function TeacherDashboardPage() {
   }, [authLoading, profile, router]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ─── Fetch telemetry when selecting a student ──────────────────────────
+  const fetchTelemetryDetails = useCallback(async (qaId: string | number) => {
+    setTelemetryLoading(true);
+    try {
+      const [summaryRes, windowRes, logsRes] = await Promise.all([
+        api.getTelemetrySummary(qaId),
+        api.getWindowChanges(qaId),
+        api.getKeystrokeLogs(qaId),
+      ]);
+
+      setTelemetrySummary(summaryRes.summary);
+      setWindowEvents(windowRes.logs || []);
+
+      const allWpm = logsRes.logs?.flatMap(l => (l.wpm_history || [])) || [];
+      setWpmChartData(allWpm.map((wpm, idx) => ({ idx: idx + 1, wpm })));
+    } catch (err) {
+      console.error('Failed to load telemetry:', err);
+      setTelemetrySummary(null);
+      setWindowEvents([]);
+      setWpmChartData([]);
+    }
+    setTelemetryLoading(false);
+  }, []);
+
+  const handleSelectStudent = useCallback((sub: StudentSubmission) => {
+    setSelectedStudent(sub);
+    fetchTelemetryDetails(sub.id);
+  }, [fetchTelemetryDetails]);
 
   // ─── Quiz Creation ──────────────────────────────────────────────────────
   const addQuestion = () => {
@@ -136,35 +184,25 @@ export default function TeacherDashboardPage() {
     }
 
     setCreating(true);
-    const { data: session } = await supabase.auth.getSession();
-    const token = session.session?.access_token;
-
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/quizzes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
+    try {
+      const data = await api.createQuiz({
         ...newQuiz,
         time_limit_mins: newQuiz.time_limit_mins ? parseInt(newQuiz.time_limit_mins) : null,
         due_date: newQuiz.due_date || null,
         questions: validQuestions,
-      }),
-    });
+      });
 
-    const data = await res.json();
-    setCreating(false);
-
-    if (data.quiz) {
-      toast({ title: 'Quiz created!' });
-      setShowCreate(false);
-      setNewQuiz({ title: '', description: '', type: 'mixed', time_limit_mins: '', due_date: '' });
-      setNewQuestions([{ question_text: '', question_type: 'essay', options: null, correct_answer: null, points: 1 }]);
-      fetchData();
-    } else {
-      toast({ title: 'Error', description: data.error, variant: 'destructive' });
+      if (data.quiz) {
+        toast({ title: 'Quiz created!' });
+        setShowCreate(false);
+        setNewQuiz({ title: '', description: '', type: 'mixed', time_limit_mins: '', due_date: '' });
+        setNewQuestions([{ question_text: '', question_type: 'essay', options: null, correct_answer: null, points: 1 }]);
+        fetchData();
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
     }
+    setCreating(false);
   };
 
   // ─── Assign Quiz ───────────────────────────────────────────────────────
@@ -175,46 +213,32 @@ export default function TeacherDashboardPage() {
     }
 
     setAssigning(true);
-    const { data: session } = await supabase.auth.getSession();
-    const token = session.session?.access_token;
-
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/quizzes/${assignQuizId}/assign`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ student_ids: selectedStudentIds }),
-    });
-
-    const data = await res.json();
-    setAssigning(false);
-
-    if (data.assignments) {
+    try {
+      const data = await api.assignQuiz(assignQuizId, selectedStudentIds);
       toast({ title: `Assigned to ${data.assignments.length} student(s)` });
       setShowAssign(false);
       setSelectedStudentIds([]);
       fetchData();
-    } else {
-      toast({ title: 'Error', description: data.error, variant: 'destructive' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
     }
+    setAssigning(false);
   };
 
   // ─── Load Replay ──────────────────────────────────────────────────────
-  const loadReplay = async (qaId: string) => {
-    const { data } = await supabase
-      .from('session_replays')
-      .select('*')
-      .eq('quiz_assignment_id', qaId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+  const loadReplay = async (qaId: string | number) => {
+    try {
+      const { replays } = await api.getAssignmentReplays(qaId);
+      const latest = replays?.[replays.length - 1];
 
-    if (data) {
-      setReplayData(data as { replay_events: unknown[]; text_snapshots: { timestamp: number; text: string }[]; duration_ms: number });
-      setReplayIdx(0);
-      setShowReplay(true);
-    } else {
+      if (latest) {
+        setReplayData(latest as { replay_events: unknown[]; text_snapshots: { timestamp: number; text: string }[]; duration_ms: number });
+        setReplayIdx(0);
+        setShowReplay(true);
+      } else {
+        toast({ title: 'No replay data available', variant: 'destructive' });
+      }
+    } catch {
       toast({ title: 'No replay data available', variant: 'destructive' });
     }
   };
@@ -308,7 +332,7 @@ export default function TeacherDashboardPage() {
           {submissions.map(sub => (
             <button
               key={sub.id}
-              onClick={() => setSelectedStudent(sub)}
+              onClick={() => handleSelectStudent(sub)}
               className={`w-full text-left p-2 rounded-lg mb-1 transition-colors text-xs hover:bg-primary/10 ${
                 selectedStudent?.id === sub.id ? 'bg-primary/15 border border-primary/30' : 'border border-transparent'
               }`}
@@ -342,7 +366,7 @@ export default function TeacherDashboardPage() {
           <div className="flex items-center justify-between mb-8 animate-slide-up">
             <div>
               <h1 className="font-headline text-2xl text-gradient">Teacher Dashboard</h1>
-              <p className="text-sm text-muted-foreground mt-1">Manage quizzes, view submissions, and replay sessions.</p>
+              <p className="text-sm text-muted-foreground mt-1">Manage quizzes, view submissions, and inspect student telemetry.</p>
             </div>
             <div className="flex gap-2">
               <Dialog open={showCreate} onOpenChange={setShowCreate}>
@@ -482,7 +506,7 @@ export default function TeacherDashboardPage() {
                         <SelectTrigger><SelectValue placeholder="Select quiz" /></SelectTrigger>
                         <SelectContent>
                           {quizzes.map(q => (
-                            <SelectItem key={q.id} value={q.id}>{q.title}</SelectItem>
+                            <SelectItem key={q.id} value={String(q.id)}>{q.title}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -526,55 +550,152 @@ export default function TeacherDashboardPage() {
             {/* ─── Submissions Tab ──────────────────────────────────────── */}
             <TabsContent value="submissions" className="space-y-3">
               {selectedStudent ? (
-                <Card className="glass-strong border border-white/[0.06]">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-base font-headline">
-                          {selectedStudent.profiles?.full_name || 'Student'}
-                        </CardTitle>
-                        <CardDescription className="text-xs">
-                          {selectedStudent.quizzes?.title} — {selectedStudent.profiles?.email}
-                        </CardDescription>
+                <div className="space-y-4">
+                  {/* Header Card */}
+                  <Card className="glass-strong border border-white/[0.06]">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-base font-headline">
+                            {selectedStudent.profiles?.full_name || 'Student'}
+                          </CardTitle>
+                          <CardDescription className="text-xs">
+                            {selectedStudent.quizzes?.title} — {selectedStudent.profiles?.email}
+                          </CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {riskBadge(selectedStudent.risk_score)}
+                          <Button size="sm" variant="outline" onClick={() => loadReplay(selectedStudent.id)}>
+                            <Play className="w-3 h-3 mr-1" /> Replay
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setSelectedStudent(null); setTelemetrySummary(null); }}>
+                            Close
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {riskBadge(selectedStudent.risk_score)}
-                        <Button size="sm" variant="outline" onClick={() => loadReplay(selectedStudent.id)}>
-                          <Play className="w-3 h-3 mr-1" /> Replay
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setSelectedStudent(null)}>
-                          Close
-                        </Button>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-4 gap-4 mb-4">
+                        <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
+                          <p className="text-lg font-headline font-bold text-gradient">{selectedStudent.risk_score ?? '—'}%</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">Risk Score</p>
+                        </div>
+                        <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
+                          <p className="text-lg font-headline font-bold">{selectedStudent.window_changes}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">Tab Switches</p>
+                        </div>
+                        <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
+                          <p className="text-lg font-headline font-bold">{selectedStudent.total_score ?? '—'}/{selectedStudent.max_score ?? '—'}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">Score</p>
+                        </div>
+                        <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
+                          <p className="text-lg font-headline font-bold capitalize">{selectedStudent.status}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">Status</p>
+                        </div>
                       </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-4 gap-4 mb-4">
-                      <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
-                        <p className="text-lg font-headline font-bold text-gradient">{selectedStudent.risk_score ?? '—'}%</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Risk Score</p>
-                      </div>
-                      <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
-                        <p className="text-lg font-headline font-bold">{selectedStudent.window_changes}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Tab Switches</p>
-                      </div>
-                      <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
-                        <p className="text-lg font-headline font-bold">{selectedStudent.total_score ?? '—'}/{selectedStudent.max_score ?? '—'}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Score</p>
-                      </div>
-                      <div className="text-center p-3 rounded-xl glass border border-white/[0.06]">
-                        <p className="text-lg font-headline font-bold capitalize">{selectedStudent.status}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Status</p>
-                      </div>
-                    </div>
-                    {selectedStudent.window_changes > 3 && (
-                      <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400 mb-3">
-                        <AlertTriangle className="w-4 h-4" />
-                        Excessive window changes detected ({selectedStudent.window_changes} times)
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                      {selectedStudent.window_changes > 3 && (
+                        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+                          <AlertTriangle className="w-4 h-4" />
+                          Excessive window changes detected ({selectedStudent.window_changes} times)
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* ─── Typing Metrics (from telemetry summary) ──────────── */}
+                  {telemetryLoading ? (
+                    <Card className="glass border border-white/[0.06]">
+                      <CardContent className="flex items-center justify-center py-10">
+                        <Loader2 className="w-5 h-5 animate-spin text-primary mr-2" />
+                        <span className="text-sm text-muted-foreground">Loading telemetry data...</span>
+                      </CardContent>
+                    </Card>
+                  ) : telemetrySummary ? (
+                    <>
+                      <Card className="glass border border-white/[0.06]">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm font-headline flex items-center gap-2">
+                            <Keyboard className="w-4 h-4 text-primary" /> Typing Metrics
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                            <MetricCard icon={<Gauge className="w-3.5 h-3.5" />} label="WPM" value={telemetrySummary.wpm} />
+                            <MetricCard icon={<Activity className="w-3.5 h-3.5" />} label="Burst Score" value={telemetrySummary.burst_score.toFixed(1)} />
+                            <MetricCard icon={<Clock className="w-3.5 h-3.5" />} label="Avg Latency" value={`${Math.round(telemetrySummary.avg_latency)}ms`} />
+                            <MetricCard icon={<Gauge className="w-3.5 h-3.5" />} label="Peak WPM" value={telemetrySummary.peak_wpm} />
+                            <MetricCard icon={<Clipboard className="w-3.5 h-3.5" />} label="Paste Chars" value={telemetrySummary.paste_chars} />
+                            <MetricCard icon={<Keyboard className="w-3.5 h-3.5" />} label="Total Keys" value={telemetrySummary.total_keys} />
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* ─── WPM Timeline Chart ──────────────────────────── */}
+                      {wpmChartData.length > 0 && (
+                        <Card className="glass border border-white/[0.06]">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-sm font-headline flex items-center gap-2">
+                              <BarChart3 className="w-4 h-4 text-primary" /> WPM Timeline
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <ResponsiveContainer width="100%" height={200}>
+                              <LineChart data={wpmChartData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                                <XAxis dataKey="idx" tick={{ fontSize: 10 }} stroke="rgba(255,255,255,0.3)" />
+                                <YAxis tick={{ fontSize: 10 }} stroke="rgba(255,255,255,0.3)" />
+                                <Tooltip
+                                  contentStyle={{ background: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                                  labelFormatter={(v) => `Sample ${v}`}
+                                />
+                                <Line type="monotone" dataKey="wpm" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* ─── Tab-Switch Events ──────────────────────────── */}
+                      {windowEvents.length > 0 && (
+                        <Card className="glass border border-white/[0.06]">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-sm font-headline flex items-center gap-2">
+                              <MonitorOff className="w-4 h-4 text-red-400" /> Tab-Switch Events ({windowEvents.filter(e => e.event_type === 'blur').length} switches)
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <ScrollArea className="max-h-[200px]">
+                              <div className="space-y-1.5">
+                                {windowEvents.map((evt, i) => (
+                                  <div key={i} className="flex items-center justify-between text-xs p-2 rounded-lg glass border border-white/[0.04]">
+                                    <div className="flex items-center gap-2">
+                                      <div className={`w-2 h-2 rounded-full ${evt.event_type === 'blur' ? 'bg-red-400' : 'bg-green-400'}`} />
+                                      <span className={evt.event_type === 'blur' ? 'text-red-400' : 'text-green-400'}>
+                                        {evt.event_type === 'blur' ? 'Left page' : 'Returned'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-muted-foreground">
+                                      {evt.event_type === 'focus' && evt.away_duration_ms != null && (
+                                        <span>away {(evt.away_duration_ms / 1000).toFixed(1)}s</span>
+                                      )}
+                                      <span>{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </>
+                  ) : (
+                    <Card className="glass border border-white/[0.06]">
+                      <CardContent className="pt-6 pb-6 text-center text-muted-foreground">
+                        <p className="text-sm">No telemetry data available for this submission.</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
               ) : (
                 <div className="grid gap-3">
                   {submissions.map((sub, idx) => (
@@ -582,7 +703,7 @@ export default function TeacherDashboardPage() {
                       key={sub.id}
                       className="glass border border-white/[0.06] hover-lift cursor-pointer transition-all"
                       style={{ animationDelay: `${idx * 60}ms` }}
-                      onClick={() => setSelectedStudent(sub)}
+                      onClick={() => handleSelectStudent(sub)}
                     >
                       <CardContent className="py-4">
                         <div className="flex items-center justify-between">
@@ -646,7 +767,7 @@ export default function TeacherDashboardPage() {
                           size="sm"
                           variant="outline"
                           className="border-white/[0.08] hover:bg-primary/10 hover:text-primary hover:border-primary/30"
-                          onClick={() => { setAssignQuizId(q.id); setShowAssign(true); }}
+                          onClick={() => { setAssignQuizId(String(q.id)); setShowAssign(true); }}
                         >
                           <Send className="w-3 h-3 mr-1" /> Assign
                         </Button>
@@ -725,6 +846,16 @@ export default function TeacherDashboardPage() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+  return (
+    <div className="text-center p-2.5 rounded-xl glass border border-white/[0.06]">
+      <div className="flex items-center justify-center text-primary mb-1">{icon}</div>
+      <p className="text-sm font-headline font-bold">{value}</p>
+      <p className="text-[9px] text-muted-foreground mt-0.5">{label}</p>
     </div>
   );
 }

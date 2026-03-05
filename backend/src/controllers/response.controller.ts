@@ -23,14 +23,11 @@ export async function submitResponses(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Verify student owns this assignment
-    const userId = req.user?.id;
-    if (userId) {
-      const qa = await assignmentModel.getByIdAndStudent(quiz_assignment_id, userId);
-      if (!qa) {
-        res.status(404).json({ error: 'Assignment not found' });
-        return;
-      }
+    // Verify student owns this assignment (auth is always required)
+    const qa = await assignmentModel.getByIdAndStudent(quiz_assignment_id, req.user!.id);
+    if (!qa) {
+      res.status(404).json({ error: 'Assignment not found or does not belong to you' });
+      return;
     }
 
     // Get correct answers for MCQ auto-grading
@@ -43,7 +40,7 @@ export async function submitResponses(req: Request, res: Response): Promise<void
     let maxScore = 0;
 
     const responseRecords = responses.map(r => {
-      const q = questionMap.get(r.question_id);
+      const q = questionMap.get(Number(r.question_id));
       const isCorrect = q?.question_type === 'multiple_choice' && q.correct_answer
         ? r.selected_option === q.correct_answer
         : null;

@@ -3,29 +3,26 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Router } from 'express';
-import { optionalAuth } from '../middleware/auth';
+import { requireAuth, requireTeacher } from '../middleware/auth';
 import {
   postHeartbeat,
   postWindowChange,
   getWindowChanges,
   postReplay,
   getReplays,
+  getKeystrokeLogs,
+  getTelemetrySummary,
 } from '../controllers/telemetry.controller';
 
 export const telemetryRoutes = Router();
 
-// Telemetry routes use optional auth (student pages may not always pass token)
-telemetryRoutes.use(optionalAuth);
+// Student write endpoints — require valid auth + ownership checked in controller
+telemetryRoutes.post('/heartbeat', requireAuth, postHeartbeat);
+telemetryRoutes.post('/window-change', requireAuth, postWindowChange);
+telemetryRoutes.post('/replay', requireAuth, postReplay);
 
-// POST /api/telemetry/heartbeat       → record keystroke heartbeat
-telemetryRoutes.post('/heartbeat', postHeartbeat);
-
-// POST /api/telemetry/window-change   → record blur/focus event
-// GET  /api/telemetry/window-change   → list window changes
-telemetryRoutes.post('/window-change', postWindowChange);
-telemetryRoutes.get('/window-change', getWindowChanges);
-
-// POST /api/telemetry/replay          → save replay data
-// GET  /api/telemetry/replay          → fetch replays
-telemetryRoutes.post('/replay', postReplay);
-telemetryRoutes.get('/replay', getReplays);
+// Teacher read endpoints
+telemetryRoutes.get('/window-change', requireAuth, requireTeacher, getWindowChanges);
+telemetryRoutes.get('/replay', requireAuth, requireTeacher, getReplays);
+telemetryRoutes.get('/keystroke-logs', requireAuth, requireTeacher, getKeystrokeLogs);
+telemetryRoutes.get('/summary', requireAuth, requireTeacher, getTelemetrySummary);

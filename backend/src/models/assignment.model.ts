@@ -1,92 +1,102 @@
-// ═══════════════════════════════════════════════════════════════════════════════
-// Assignment Model — Supabase queries for quiz assignments
-// ═══════════════════════════════════════════════════════════════════════════════
+import { JsonStore } from '../lib/json-store';
 
-import { getServiceClient } from '../config/supabase';
+type AssignmentRecord = {
+  id: number;
+  quiz_id: number;
+  student_id: string;
+  teacher_id: string;
+  status: string;
+  risk_score: number | null;
+  total_score: number | null;
+  max_score: number | null;
+  started_at: string | null;
+  submitted_at: string | null;
+  session_id: string | null;
+  window_changes: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type QuizRecord = {
+  id: number;
+  teacher_id: string;
+  title: string;
+  description: string;
+  type: string;
+  status: string;
+  time_limit_mins: number | null;
+  due_date: string | null;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+type ProfileRecord = {
+  id: string;
+  email: string;
+  full_name: string | null;
+};
+
+const assignments = new JsonStore<AssignmentRecord>('quiz_assignments.json');
+const quizzes = new JsonStore<QuizRecord>('quizzes.json');
+const profiles = new JsonStore<ProfileRecord>('profiles.json', { useUuid: true });
 
 export class AssignmentModel {
-  private supabase = getServiceClient();
-
-  /** Assign a quiz to multiple students */
-  async assignToStudents(quizId: string, studentIds: string[]) {
+  async assignToStudents(quizId: string, studentIds: string[], teacherId: string) {
     const records = studentIds.map(sid => ({
-      quiz_id: quizId,
+      quiz_id: Number(quizId),
       student_id: sid,
+      teacher_id: teacherId,
       status: 'assigned',
+      risk_score: null,
+      total_score: null,
+      max_score: null,
+      started_at: null,
+      submitted_at: null,
+      session_id: null,
+      window_changes: 0,
     }));
 
-    const { data, error } = await this.supabase
-      .from('quiz_assignments')
-      .insert(records)
-      .select();
-
-    if (error) throw error;
-    return data;
+    return assignments.insertMany(records as any);
   }
 
-  /** Get assignment by ID with quiz info */
   async getById(assignmentId: string) {
-    const { data, error } = await this.supabase
-      .from('quiz_assignments')
-      .select('*, quizzes(*)')
-      .eq('id', assignmentId)
-      .single();
+    const a = assignments.findOne({ id: Number(assignmentId) } as any);
+    if (!a) return null;
 
-    if (error) throw error;
-    return data;
+    const quiz = quizzes.findOne({ id: a.quiz_id } as any);
+    return { ...a, quizzes: quiz || null };
   }
 
-  /** Get assignment for a specific student */
   async getByIdAndStudent(assignmentId: string, studentId: string) {
-    const { data, error } = await this.supabase
-      .from('quiz_assignments')
-      .select('id, quiz_id, student_id')
-      .eq('id', assignmentId)
-      .eq('student_id', studentId)
-      .single();
-
-    if (error) throw error;
-    return data;
+    return assignments.findOne({ id: Number(assignmentId), student_id: studentId } as any);
   }
 
-  /** Update assignment status and scores */
   async updateSubmission(assignmentId: string, totalScore: number, maxScore: number) {
-    const { error } = await this.supabase
-      .from('quiz_assignments')
-      .update({
+    assignments.update(
+      { id: Number(assignmentId) } as any,
+      {
         status: 'submitted',
         submitted_at: new Date().toISOString(),
         total_score: totalScore,
         max_score: maxScore,
-      })
-      .eq('id', assignmentId);
-
-    if (error) throw error;
+      } as any
+    );
   }
 
-  /** Update risk score on an assignment */
   async updateRiskScore(assignmentId: string, riskScore: number) {
-    const { error } = await this.supabase
-      .from('quiz_assignments')
-      .update({ risk_score: riskScore })
-      .eq('id', assignmentId);
-
-    if (error) throw error;
+    assignments.update(
+      { id: Number(assignmentId) } as any,
+      { risk_score: riskScore } as any
+    );
   }
 
-  /** Get quiz info for assigned students (for email notifications) */
   async getQuizWithStudents(quizId: string, studentIds: string[]) {
-    const { data: quiz } = await this.supabase
-      .from('quizzes')
-      .select('title, due_date')
-      .eq('id', quizId)
-      .single();
-
-    const { data: students } = await this.supabase
-      .from('profiles')
-      .select('id, email, full_name')
-      .in('id', studentIds);
-
-    return { quiz, students };
+    const quiz = quizzes.findOne({ id: Number(quizId) } as any);
+    const students = profiles.findIn('id', studentIds);
+    return {
+      quiz: quiz ? { title: quiz.title, due_date: quiz.due_date } : null,
+      students: students.map(s => ({ id: s.id, email: s.email, full_name: s.full_name })),
+    };
   }
 }

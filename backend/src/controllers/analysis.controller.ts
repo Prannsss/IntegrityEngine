@@ -30,7 +30,7 @@ export async function runAnalysis(req: Request, res: Response): Promise<void> {
 
     const studentId = assignment.student_id;
 
-    // 2. Get baseline fingerprint
+    // 2. Get baseline fingerprint from profiles.baseline_fingerprint (JSONB)
     const baseline = await analysisModel.getBaselineFingerprint(studentId);
 
     // 3. Get latest keystroke log
@@ -41,26 +41,29 @@ export async function runAnalysis(req: Request, res: Response): Promise<void> {
 
     // 5. Compute risk score
     const flags: any[] = [];
+    const deviation: Record<string, number> = {};
+    const zScores: Record<string, number> = {};
     let riskScore = 0;
 
-    if (keystrokeLog && baseline) {
-      // Compare metrics against baseline
-      const metrics = ['wpm', 'burst_score', 'avg_latency', 'peak_wpm'];
+    const metricKeys = ['wpm', 'burst_score', 'avg_latency', 'peak_wpm'];
 
-      for (const metric of metrics) {
-        const current = keystrokeLog[metric] || 0;
+    if (keystrokeLog && baseline) {
+      for (const metric of metricKeys) {
+        const current = (keystrokeLog as Record<string, any>)[metric] || 0;
         const base = baseline[metric] || 0;
 
         if (base > 0) {
-          const deviation = Math.abs(current - base) / base;
-          if (deviation > 0.5) {
+          const dev = Math.abs(current - base) / base;
+          deviation[metric] = Math.round(dev * 100);
+          zScores[metric] = parseFloat(((current - base) / Math.max(base * 0.2, 1)).toFixed(2));
+          if (dev > 0.5) {
             riskScore += 15;
             flags.push({
               type: 'metric_deviation',
               metric,
               current,
               baseline: base,
-              deviation: Math.round(deviation * 100),
+              deviation: Math.round(dev * 100),
             });
           }
         }
@@ -98,20 +101,22 @@ export async function runAnalysis(req: Request, res: Response): Promise<void> {
 
     riskScore = Math.min(riskScore, 100);
 
-    // 6. Save analysis result
+    const confidence = baseline ? 0.85 : 0.4;
+    const explanation = flags.length
+      ? `Detected ${flags.length} anomal${flags.length > 1 ? 'ies' : 'y'}: ${flags.map(f => f.type).join(', ')}`
+      : 'No significant anomalies detected.';
+
+    // 6. Save analysis result (matches analysis_results schema)
     const result = await analysisModel.saveResult({
       quiz_assignment_id,
       student_id: studentId,
       risk_score: riskScore,
+      confidence,
       flags,
-      metrics: {
-        wpm: keystrokeLog?.wpm || 0,
-        burst_score: keystrokeLog?.burst_score || 0,
-        avg_latency: keystrokeLog?.avg_latency || 0,
-        peak_wpm: keystrokeLog?.peak_wpm || 0,
-        paste_chars: keystrokeLog?.paste_chars || 0,
-        window_changes: blurCount,
-      },
+      deviation,
+      z_scores: zScores,
+      explanation,
+      window_change_count: blurCount,
     });
 
     // 7. Update assignment risk score

@@ -4,9 +4,12 @@
 
 import { Router } from 'express';
 import { requireAuth, requireTeacher } from '../middleware/auth';
-import { listStudents } from '../controllers/student.controller';
+import { listStudents, getStudentAssignments } from '../controllers/student.controller';
 
 export const studentRoutes = Router();
 
-// GET /api/students → list all students (teachers only)
+// GET /api/students — list all students (teachers only)
 studentRoutes.get('/', requireAuth, requireTeacher, listStudents);
+
+// GET /api/students/:studentId/assignments — list assignments for a student (teachers only)
+studentRoutes.get('/:studentId/assignments', requireAuth, requireTeacher, getStudentAssignments);
