@@ -1,23 +1,22 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase, type SupabaseProfile } from '@/lib/supabase/client';
-import type { User, Session } from '@supabase/supabase-js';
+import { api, type UserProfile, ApiError } from '@/lib/api';
 
 export type AuthState = {
-  user: User | null;
-  profile: SupabaseProfile | null;
-  session: Session | null;
+  user: UserProfile | null;
   loading: boolean;
   error: string | null;
 };
 
 type AuthContextType = AuthState & {
   signUp: (email: string, password: string, fullName: string, role: 'teacher' | 'student') => Promise<{ error: string | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signOut: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ error: string | null; code?: string; email?: string }>;
+  signOut: () => void;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   refreshProfile: () => Promise<void>;
+  verifyEmail: (email: string, code: string) => Promise<{ error: string | null }>;
+  resendVerification: (email: string) => Promise<{ error: string | null }>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,83 +24,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
-    profile: null,
-    session: null,
     loading: true,
     error: null,
   });
 
-  const fetchProfile = useCallback(async (userId: string): Promise<SupabaseProfile | null> => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (error) {
-      console.error('Error fetching profile:', error.message);
-      return null;
+  const refreshProfile = useCallback(async () => {
+    if (!api.getToken()) {
+      setState(prev => ({ ...prev, loading: false }));
+      return;
     }
-    return data as SupabaseProfile;
+
+    try {
+      const { user } = await api.me();
+      setState({ user, loading: false, error: null });
+    } catch {
+      api.logout();
+      setState({ user: null, loading: false, error: null });
+    }
   }, []);
 
-  const refreshProfile = useCallback(async () => {
-    if (!state.user) return;
-    const profile = await fetchProfile(state.user.id);
-    setState(prev => ({ ...prev, profile }));
-  }, [state.user, fetchProfile]);
-
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        setState({
-          user: session.user,
-          profile,
-          session,
-          loading: false,
-          error: null,
-        });
-      } else {
-        setState(prev => ({ ...prev, loading: false }));
-      }
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          const profile = await fetchProfile(session.user.id);
-          // Update last_login_at
-          await supabase
-            .from('profiles')
-            .update({ last_login_at: new Date().toISOString() })
-            .eq('id', session.user.id);
-
-          setState({
-            user: session.user,
-            profile,
-            session,
-            loading: false,
-            error: null,
-          });
-        } else if (event === 'SIGNED_OUT') {
-          setState({
-            user: null,
-            profile: null,
-            session: null,
-            loading: false,
-            error: null,
-          });
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          setState(prev => ({ ...prev, session, user: session.user }));
-        }
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, [fetchProfile]);
+    refreshProfile();
+  }, [refreshProfile]);
 
   const signUp = async (
     email: string,
@@ -111,56 +55,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   ): Promise<{ error: string | null }> => {
     setState(prev => ({ ...prev, loading: true, error: null }));
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName, role },
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'https://integrity-engine.vercel.app'}/auth/login`,
-      },
-    });
-
-    if (error) {
-      setState(prev => ({ ...prev, loading: false, error: error.message }));
-      return { error: error.message };
+    try {
+      await api.signup(email, password, fullName, role);
+      setState(prev => ({ ...prev, loading: false }));
+      return { error: null };
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Sign up failed';
+      setState(prev => ({ ...prev, loading: false, error: message }));
+      return { error: message };
     }
-
-    setState(prev => ({ ...prev, loading: false }));
-    return { error: null };
   };
 
-  const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
+  const signIn = async (email: string, password: string): Promise<{ error: string | null; code?: string; email?: string }> => {
     setState(prev => ({ ...prev, loading: true, error: null }));
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      setState(prev => ({ ...prev, loading: false, error: error.message }));
-      return { error: error.message };
+    try {
+      const { user } = await api.login(email, password);
+      setState({ user, loading: false, error: null });
+      return { error: null };
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Login failed';
+      const data = err instanceof ApiError ? (err.data as Record<string, unknown>) : {};
+      setState(prev => ({ ...prev, loading: false, error: message }));
+      return {
+        error: message,
+        code: data?.code as string | undefined,
+        email: data?.email as string | undefined,
+      };
     }
-
-    setState(prev => ({ ...prev, loading: false }));
-    return { error: null };
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setState({
-      user: null,
-      profile: null,
-      session: null,
-      loading: false,
-      error: null,
-    });
+  const signOut = () => {
+    api.logout();
+    setState({ user: null, loading: false, error: null });
   };
 
   const resetPassword = async (email: string): Promise<{ error: string | null }> => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/login`,
-    });
+    try {
+      await api.forgotPassword(email);
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof ApiError ? err.message : 'Failed to send reset link' };
+    }
+  };
 
-    if (error) return { error: error.message };
-    return { error: null };
+  const verifyEmail = async (email: string, code: string): Promise<{ error: string | null }> => {
+    try {
+      await api.verifyEmail(email, code);
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof ApiError ? err.message : 'Verification failed' };
+    }
+  };
+
+  const resendVerification = async (email: string): Promise<{ error: string | null }> => {
+    try {
+      await api.resendVerification(email);
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof ApiError ? err.message : 'Failed to resend' };
+    }
   };
 
   return (
@@ -172,6 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signOut,
         resetPassword,
         refreshProfile,
+        verifyEmail,
+        resendVerification,
       }}
     >
       {children}

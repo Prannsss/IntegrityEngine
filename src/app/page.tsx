@@ -10,14 +10,14 @@ import { IELogo } from '@/components/ui/ie-logo';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function Home() {
-  const { profile, loading } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && profile) {
-      router.replace(profile.role === 'teacher' ? '/teacher' : '/student');
+    if (!loading && user) {
+      router.replace(user.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
     }
-  }, [loading, profile, router]);
+  }, [loading, user, router]);
 
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-primary selection:text-white overflow-hidden relative">
@@ -33,31 +33,26 @@ export default function Home() {
         }} />
       </div>
       
-      {/* ─── Sticky Navigation ───────────────────────────────────────────── */}
-      <div className="sticky top-0 z-50 w-full backdrop-blur-xl border-b border-border/30 bg-background/80 transition-all">
-        <nav className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center animate-slide-up">
-          <div className="flex items-center gap-2.5 font-headline text-xl font-bold tracking-tight group">
-            <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center glow-primary transition-all duration-300 group-hover:scale-110">
-              <IELogo className="w-5 h-5" color="white" />
+      {/* ─── Pill Navigation ─────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-50 w-full flex justify-center pt-4 px-4">
+        <nav className="max-w-3xl w-full px-5 py-2.5 flex justify-between items-center rounded-full glass-strong border border-white/[0.08] shadow-lg shadow-black/10 animate-slide-up">
+          <div className="flex items-center gap-2.5 font-headline text-lg font-bold tracking-tight group">
+            <div className="flex items-center justify-center transition-all duration-300 group-hover:scale-110">
+              <IELogo className="w-6 h-6 text-primary" />
             </div>
-            <span>Integrity <em className="font-display not-italic" style={{ fontStyle: 'italic' }}>Engine</em></span>
+            <span>Integrity Engine</span>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            {profile ? (
-              <Link href={profile.role === 'teacher' ? '/teacher' : '/student'}>
-                <Button className="bg-primary hover:bg-primary/90 glow-primary">My Dashboard</Button>
+            {user ? (
+              <Link href={user.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard'}>
+                <Button size="sm" className="bg-primary hover:bg-primary/90 glow-primary rounded-full h-9 px-5">Dashboard</Button>
               </Link>
             ) : (
               <>
                 <Link href="/auth/login">
-                  <Button variant="ghost" className="hover:bg-white/5 dark:hover:bg-white/5 gap-2">
-                    <LogIn className="w-4 h-4" />Sign In
-                  </Button>
-                </Link>
-                <Link href="/auth/signup">
-                  <Button className="bg-primary hover:bg-primary/90 glow-primary gap-2">
-                    <UserPlus className="w-4 h-4" />Sign Up
+                  <Button size="sm" className="bg-primary hover:bg-primary/90 glow-primary gap-1.5 rounded-full h-9 px-5">
+                    <LogIn className="w-3.5 h-3.5" />Sign In
                   </Button>
                 </Link>
               </>
@@ -99,8 +94,8 @@ export default function Home() {
             </Link>
             <Link href="/auth/login">
               <Button size="lg" variant="outline" className="h-14 px-10 text-base gap-2 border-white/10 hover:bg-white/5 hover:border-white/20">
-                <Search className="w-4 h-4" />
-                Sign In to Dashboard
+                <LogIn className="w-4 h-4" />
+                Sign In
               </Button>
             </Link>
           </div>
@@ -146,7 +141,6 @@ export default function Home() {
               key={i}
               className="group relative p-7 rounded-2xl glass hover-lift cursor-default"
             >
-              <div className="gradient-border rounded-2xl absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
               <div className={`mb-5 p-3 rounded-xl w-fit transition-all duration-300 group-hover:scale-110 ${
                 feature.accent === 'primary' ? 'bg-primary/10' :
                 feature.accent === 'accent' ? 'bg-accent/10' : 'bg-green-500/10'
@@ -161,7 +155,7 @@ export default function Home() {
 
         {/* ─── How It Works ────────────────────────────────────────────────── */}
         <div className="mt-32 text-center">
-          <h2 className="text-3xl sm:text-4xl font-headline font-bold mb-4">How Integrity <em className="font-display" style={{ fontStyle: 'italic' }}>Engine</em> Works</h2>
+          <h2 className="text-3xl sm:text-4xl font-headline font-bold mb-4">How Integrity<span className="italic"> Engine</span> Works</h2>
           <p className="text-muted-foreground max-w-xl mx-auto mb-16">Three layers of verification ensure authentic student work.</p>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
@@ -213,7 +207,7 @@ export default function Home() {
           <div className="w-6 h-6 bg-primary/80 rounded-md flex items-center justify-center">
             <IELogo className="w-4 h-4" color="white" />
           </div>
-          <span>Integrity <em className="font-display" style={{ fontStyle: 'italic' }}>Engine</em> &copy; {new Date().getFullYear()}</span>
+          <span>Integrity<span className="italic"> Engine</span> &copy; {new Date().getFullYear()}</span>
         </div>
         <div className="flex gap-8">
           <Link href="#" className="hover:text-foreground transition-colors">Docs</Link>

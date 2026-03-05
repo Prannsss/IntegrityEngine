@@ -2,13 +2,14 @@
 // Quiz Model — Supabase queries for quizzes and questions
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { getServiceClient } from '../config/supabase';
+import { getServiceClient } from '../Config/supabase';
 
 export interface QuizInput {
   title: string;
   description?: string;
   teacher_id: string;
-  time_limit_minutes?: number;
+  type?: 'essay' | 'multiple_choice' | 'mixed';
+  time_limit_mins?: number;
   status?: string;
   due_date?: string;
 }
@@ -20,7 +21,7 @@ export interface QuestionInput {
   options?: string[];
   correct_answer?: string;
   points: number;
-  order_index: number;
+  sort_order: number;
 }
 
 export class QuizModel {

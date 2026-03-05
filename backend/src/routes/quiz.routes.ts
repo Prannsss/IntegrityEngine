@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Router } from 'express';
-import { requireAuth, requireTeacher } from '../middleware/auth';
+import { requireAuth, requireTeacher } from '../Middleware/auth';
 import {
   listQuizzes,
   createQuiz,
@@ -11,7 +11,7 @@ import {
   updateQuiz,
   deleteQuiz,
   assignQuiz,
-} from '../controllers/quiz.controller';
+} from '../Controllers/quiz.controller';
 
 export const quizRoutes = Router();
 

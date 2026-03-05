@@ -2,6 +2,7 @@
 
 import { AuthProvider } from '@/context/AuthContext';
 import { GooeyToaster } from 'goey-toast';
+import 'goey-toast/styles.css';
 import { useTheme } from 'next-themes';
 
 function ThemedGooeyToaster() {

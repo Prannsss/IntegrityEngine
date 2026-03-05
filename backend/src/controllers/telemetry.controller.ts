@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Request, Response } from 'express';
-import { TelemetryModel } from '../models/telemetry.model';
+import { TelemetryModel } from '../Models/telemetry.model';
 
 const telemetryModel = new TelemetryModel();
 

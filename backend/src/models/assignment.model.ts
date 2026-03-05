@@ -2,7 +2,7 @@
 // Assignment Model — Supabase queries for quiz assignments
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { getServiceClient } from '../config/supabase';
+import { getServiceClient } from '../Config/supabase';
 
 export class AssignmentModel {
   private supabase = getServiceClient();

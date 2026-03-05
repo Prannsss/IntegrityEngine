@@ -2,7 +2,7 @@
 // Response Model — Supabase queries for quiz responses
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { getServiceClient } from '../config/supabase';
+import { getServiceClient } from '../Config/supabase';
 
 export class ResponseModel {
   private supabase = getServiceClient();

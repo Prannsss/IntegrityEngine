@@ -3,8 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Router } from 'express';
-import { optionalAuth } from '../middleware/auth';
-import { submitResponses } from '../controllers/response.controller';
+import { optionalAuth } from '../Middleware/auth';
+import { submitResponses } from '../Controllers/response.controller';
 
 export const responseRoutes = Router();
 

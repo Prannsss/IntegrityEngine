@@ -3,8 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth';
-import { runAnalysis } from '../controllers/analysis.controller';
+import { requireAuth } from '../Middleware/auth';
+import { runAnalysis } from '../Controllers/analysis.controller';
 
 export const analysisRoutes = Router();
 

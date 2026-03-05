@@ -19,7 +19,16 @@ class Auth
      */
     public static function getUser(): ?array
     {
-        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        // Apache + mod_rewrite can strip the Authorization header.
+        // Check multiple sources for robustness.
+        $header = $_SERVER['HTTP_AUTHORIZATION']
+            ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+            ?? '';
+
+        if (!$header && function_exists('getallheaders')) {
+            $allHeaders = getallheaders();
+            $header = $allHeaders['Authorization'] ?? $allHeaders['authorization'] ?? '';
+        }
 
         if (!str_starts_with($header, 'Bearer ')) {
             return null;

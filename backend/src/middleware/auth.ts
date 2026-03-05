@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Request, Response, NextFunction } from 'express';
-import { getAuthClient } from '../config/supabase';
+import { getAuthClient } from '../Config/supabase';
 import { User } from '@supabase/supabase-js';
 
 // Extend Express Request to carry authenticated user
@@ -77,7 +77,7 @@ export async function requireTeacher(req: Request, res: Response, next: NextFunc
     return;
   }
 
-  const { getServiceClient } = await import('../config/supabase');
+  const { getServiceClient } = await import('../Config/supabase');
   const supabase = getServiceClient();
 
   const { data: profile } = await supabase

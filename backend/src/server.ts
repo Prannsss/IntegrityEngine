@@ -10,11 +10,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
-import { quizRoutes } from './routes/quiz.routes';
-import { telemetryRoutes } from './routes/telemetry.routes';
-import { analysisRoutes } from './routes/analysis.routes';
-import { studentRoutes } from './routes/student.routes';
-import { responseRoutes } from './routes/response.routes';
+import { quizRoutes } from './Routes/quiz.routes';
+import { telemetryRoutes } from './Routes/telemetry.routes';
+import { analysisRoutes } from './Routes/analysis.routes';
+import { studentRoutes } from './Routes/student.routes';
+import { responseRoutes } from './Routes/response.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 3001;
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:9002',
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
 }));
 app.use(morgan('dev'));

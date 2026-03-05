@@ -1,5 +1,9 @@
 RewriteEngine On
 
+# Pass Authorization header through mod_rewrite (Apache strips it by default)
+RewriteCond %{HTTP:Authorization} .+
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Allow direct access to existing files
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

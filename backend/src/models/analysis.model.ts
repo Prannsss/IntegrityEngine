@@ -2,24 +2,21 @@
 // Analysis Model — Supabase queries for fingerprints and analysis results
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { getServiceClient } from '../config/supabase';
+import { getServiceClient } from '../Config/supabase';
 
 export class AnalysisModel {
   private supabase = getServiceClient();
 
-  /** Get student's baseline fingerprint */
+  /** Get student's baseline fingerprint from profile */
   async getBaselineFingerprint(studentId: string) {
     const { data, error } = await this.supabase
-      .from('fingerprints')
-      .select('*')
-      .eq('student_id', studentId)
-      .eq('is_baseline', true)
-      .order('created_at', { ascending: false })
-      .limit(1)
+      .from('profiles')
+      .select('baseline_fingerprint, baseline_sample_count')
+      .eq('id', studentId)
       .single();
 
     if (error && error.code !== 'PGRST116') throw error;
-    return data;
+    return data?.baseline_fingerprint ? { ...data.baseline_fingerprint, sample_count: data.baseline_sample_count } : null;
   }
 
   /** Save analysis result */
@@ -27,13 +24,28 @@ export class AnalysisModel {
     quiz_assignment_id: string;
     student_id: string;
     risk_score: number;
+    confidence: number;
     flags: any[];
-    metrics: Record<string, any>;
+    deviation: Record<string, number>;
+    z_scores: Record<string, number>;
+    explanation: string;
     ai_explanation?: string | null;
+    window_change_count?: number;
   }) {
     const { data, error } = await this.supabase
       .from('analysis_results')
-      .insert(result)
+      .insert({
+        quiz_assignment_id: result.quiz_assignment_id,
+        student_id: result.student_id,
+        risk_score: result.risk_score,
+        confidence: result.confidence,
+        flags: result.flags,
+        deviation: result.deviation,
+        z_scores: result.z_scores,
+        explanation: result.explanation,
+        ai_explanation: result.ai_explanation || null,
+        window_change_count: result.window_change_count || 0,
+      })
       .select()
       .single();
 

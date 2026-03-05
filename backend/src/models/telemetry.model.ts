@@ -2,7 +2,7 @@
 // Telemetry Model — Supabase queries for keystroke logs, window changes, replays
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { getServiceClient } from '../config/supabase';
+import { getServiceClient } from '../Config/supabase';
 
 export class TelemetryModel {
   private supabase = getServiceClient();

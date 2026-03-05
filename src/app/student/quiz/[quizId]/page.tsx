@@ -3,8 +3,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase/client';
-import type { Quiz, QuizQuestion, QuizAssignment, ReplayEvent, TextSnapshot } from '@/lib/supabase/client';
+import { api, type Quiz, type QuizQuestion } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,13 +26,12 @@ import {
 export default function StudentQuizPage({ params }: { params: Promise<{ quizId: string }> }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
-  const [assignment, setAssignment] = useState<QuizAssignment | null>(null);
-  const [answers, setAnswers] = useState<Record<string, { answer_text?: string; selected_option?: string }>>({});
+  const [answers, setAnswers] = useState<Record<number, { answer_text?: string; selected_option?: string }>>({}); 
   const [currentQ, setCurrentQ] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -45,8 +43,8 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
   const windowChangesRef = useRef(0);
 
   // ─── Replay tracking ───────────────────────────────────────────────────
-  const replayEventsRef = useRef<ReplayEvent[]>([]);
-  const textSnapshotsRef = useRef<TextSnapshot[]>([]);
+  const replayEventsRef = useRef<Array<{ timestamp: number; type: string; data: Record<string, unknown> }>>([]); 
+  const textSnapshotsRef = useRef<Array<{ timestamp: number; text: string }>>([]); 
   const sessionStartRef = useRef(Date.now());
   const snapshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -61,36 +59,19 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
   const fetchData = useCallback(async () => {
     if (!resolvedQuizId || !user) return;
     setLoading(true);
-
-    const [quizRes, questionsRes] = await Promise.all([
-      supabase.from('quizzes').select('*').eq('id', resolvedQuizId).single(),
-      supabase.from('quiz_questions').select('*').eq('quiz_id', resolvedQuizId).order('sort_order'),
-    ]);
-
-    if (quizRes.data) setQuiz(quizRes.data as Quiz);
-    if (questionsRes.data) setQuestions(questionsRes.data as QuizQuestion[]);
-
-    if (qaId) {
-      const { data } = await supabase.from('quiz_assignments').select('*').eq('id', qaId).single();
-      if (data) {
-        setAssignment(data as QuizAssignment);
-        // Mark as in_progress
-        if (data.status === 'assigned') {
-          await supabase.from('quiz_assignments').update({
-            status: 'in_progress',
-            started_at: new Date().toISOString(),
-            session_id: sessionIdRef.current,
-          }).eq('id', qaId);
-        }
-      }
+    try {
+      const res = await api.getQuiz(parseInt(resolvedQuizId, 10));
+      setQuiz(res.quiz);
+      setQuestions(res.questions);
+    } catch {
+      // quiz not found
     }
-
     setLoading(false);
-  }, [resolvedQuizId, user, qaId]);
+  }, [resolvedQuizId, user]);
 
   useEffect(() => {
-    if (!authLoading && !profile) router.replace('/auth/login');
-  }, [authLoading, profile, router]);
+    if (!authLoading && !user) router.replace('/auth/login');
+  }, [authLoading, user, router]);
 
   useEffect(() => {
     fetchData();
@@ -112,14 +93,10 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
       });
 
       // Send to API
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/telemetry/window-change`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quiz_assignment_id: qaId,
-          session_id: sessionIdRef.current,
-          event_type: 'blur',
-        }),
+      api.sendWindowChange({
+        quiz_assignment_id: parseInt(qaId, 10),
+        session_id: sessionIdRef.current,
+        event_type: 'blur',
       }).catch(console.error);
     };
 
@@ -133,15 +110,11 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
         data: { event_type: 'focus', away_duration_ms: awayMs },
       });
 
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/telemetry/window-change`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quiz_assignment_id: qaId,
-          session_id: sessionIdRef.current,
-          event_type: 'focus',
-          away_duration_ms: awayMs,
-        }),
+      api.sendWindowChange({
+        quiz_assignment_id: parseInt(qaId, 10),
+        session_id: sessionIdRef.current,
+        event_type: 'focus',
+        away_duration_ms: awayMs,
       }).catch(console.error);
     };
 
@@ -172,7 +145,7 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
   }, [currentQ, questions, answers]);
 
   // ─── Track keystrokes for replay ─────────────────────────────────────
-  const handleAnswerChange = (questionId: string, value: string, type: 'essay' | 'mcq') => {
+  const handleAnswerChange = (questionId: number, value: string, type: 'essay' | 'mcq') => {
     if (type === 'essay') {
       // Record replay event
       replayEventsRef.current.push({
@@ -206,37 +179,27 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
 
     // Save replay data
     const durationMs = Date.now() - sessionStartRef.current;
-    await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/telemetry/replay`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quiz_assignment_id: qaId,
-        session_id: sessionIdRef.current,
-        replay_events: replayEventsRef.current,
-        text_snapshots: textSnapshotsRef.current,
-        duration_ms: durationMs,
-        total_events: replayEventsRef.current.length,
-      }),
+    await api.saveReplay({
+      quiz_assignment_id: parseInt(qaId, 10),
+      session_id: sessionIdRef.current,
+      replay_events: replayEventsRef.current,
+      text_snapshots: textSnapshotsRef.current,
+      duration_ms: durationMs,
+      total_events: replayEventsRef.current.length,
     }).catch(console.error);
 
     // Submit responses
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/quiz-responses/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quiz_assignment_id: qaId, responses }),
-    });
-
-    const data = await res.json();
-    setSubmitting(false);
-
-    if (data.success) {
+    try {
+      const data = await api.submitResponses(parseInt(qaId, 10), responses);
+      setSubmitting(false);
       toast({
         title: 'Quiz submitted!',
         description: data.max_score !== null ? `Score: ${data.total_score}/${data.max_score}` : 'Submitted for review.',
       });
-      router.push('/student');
-    } else {
-      toast({ title: 'Submission failed', description: data.error, variant: 'destructive' });
+      router.push('/student/dashboard');
+    } catch {
+      setSubmitting(false);
+      toast({ title: 'Submission failed', description: 'Something went wrong.', variant: 'destructive' });
     }
   };
 
@@ -259,7 +222,7 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
             <AlertTriangle className="w-7 h-7 text-muted-foreground/50" />
           </div>
           <p className="text-muted-foreground text-sm">Quiz not found or has no questions.</p>
-          <Button variant="outline" size="sm" className="mt-4 border-white/[0.08]" onClick={() => router.push('/student')}>
+          <Button variant="outline" size="sm" className="mt-4 border-white/[0.08]" onClick={() => router.push('/student/dashboard')}>
             <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back to Dashboard
           </Button>
         </div>

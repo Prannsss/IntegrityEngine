@@ -1,478 +1,522 @@
--- ═══════════════════════════════════════════════════════════════════════════════
--- Integrity Engine — Supabase PostgreSQL Schema v3
--- Academic Integrity Intelligence System (AIIS)
--- ═══════════════════════════════════════════════════════════════════════════════
+-- phpMyAdmin SQL Dump
+-- version 5.2.1
+-- https://www.phpmyadmin.net/
 --
--- Tables:
---   1.  profiles              — User accounts (teachers & students)
---   2.  quizzes               — Teacher-created quizzes/exams/assignments
---   3.  quiz_questions         — Questions within a quiz (essay or MCQ)
---   4.  quiz_assignments       — Quiz assigned to student (the "take" record)
---   5.  quiz_responses         — Student answers per question
---   6.  keystroke_logs         — Raw telemetry events per heartbeat
---   7.  window_change_logs     — Alt-tab / window focus changes
---   8.  session_replays        — Full replay data for typing sessions
---   9.  fingerprints           — Computed stylometric fingerprints
---   10. analysis_results       — Risk analysis snapshots
+-- Host: 127.0.0.1
+-- Generation Time: Mar 05, 2026 at 07:00 PM
+-- Server version: 10.4.32-MariaDB
+-- PHP Version: 8.2.12
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
 --
--- NOTE: profiles.id still references auth.users(id) which is UUID — this is
---       required by Supabase Auth. All other tables use SERIAL (auto-increment).
--- ═══════════════════════════════════════════════════════════════════════════════
+-- Database: `intengine`
+--
 
--- ─── 1. PROFILES ────────────────────────────────────────────────────────────
--- id is UUID because Supabase Auth generates UUIDs for auth.users
+-- --------------------------------------------------------
 
-CREATE TABLE profiles (
-  id                    UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email                 TEXT NOT NULL,
-  full_name             TEXT,
-  avatar_url            TEXT,
-  role                  TEXT NOT NULL CHECK (role IN ('teacher', 'student')),
-  baseline_fingerprint  JSONB DEFAULT NULL,
-  baseline_sample_count INTEGER DEFAULT 0,
-  email_verified        BOOLEAN DEFAULT FALSE,
-  last_login_at         TIMESTAMPTZ,
-  created_at            TIMESTAMPTZ DEFAULT NOW(),
-  updated_at            TIMESTAMPTZ DEFAULT NOW()
-);
+--
+-- Table structure for table `analysis_results`
+--
 
-CREATE INDEX idx_profiles_role ON profiles(role);
-CREATE INDEX idx_profiles_email ON profiles(email);
+CREATE TABLE `analysis_results` (
+  `id` int(11) NOT NULL,
+  `quiz_assignment_id` int(11) NOT NULL,
+  `student_id` int(11) NOT NULL,
+  `risk_score` int(11) NOT NULL,
+  `confidence` float NOT NULL,
+  `flags` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`flags`)),
+  `deviation` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`deviation`)),
+  `z_scores` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`z_scores`)),
+  `explanation` text NOT NULL DEFAULT '',
+  `ai_explanation` text DEFAULT NULL,
+  `window_change_count` int(11) DEFAULT 0,
+  `created_at` datetime DEFAULT current_timestamp()
+) ;
 
--- ─── 2. QUIZZES ─────────────────────────────────────────────────────────────
+-- --------------------------------------------------------
 
-CREATE TABLE quizzes (
-  id               SERIAL PRIMARY KEY,
-  teacher_id       UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  title            TEXT NOT NULL,
-  description      TEXT DEFAULT '',
-  type             TEXT NOT NULL CHECK (type IN ('essay', 'multiple_choice', 'mixed')),
-  status           TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'closed')),
-  time_limit_mins  INTEGER DEFAULT NULL,
-  due_date         TIMESTAMPTZ DEFAULT NULL,
-  settings         JSONB DEFAULT '{}',
-  created_at       TIMESTAMPTZ DEFAULT NOW(),
-  updated_at       TIMESTAMPTZ DEFAULT NOW()
-);
+--
+-- Table structure for table `fingerprints`
+--
 
-CREATE INDEX idx_quizzes_teacher ON quizzes(teacher_id);
-CREATE INDEX idx_quizzes_status ON quizzes(status);
+CREATE TABLE `fingerprints` (
+  `id` int(11) NOT NULL,
+  `quiz_assignment_id` int(11) NOT NULL,
+  `student_id` int(11) NOT NULL,
+  `lexical_density` float NOT NULL DEFAULT 0,
+  `avg_sentence_length` float NOT NULL DEFAULT 0,
+  `vocabulary_diversity` float NOT NULL DEFAULT 0,
+  `burst_score` float NOT NULL DEFAULT 0,
+  `flesch_kincaid_score` float NOT NULL DEFAULT 0,
+  `fingerprint_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`fingerprint_json`)),
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── 3. QUIZ_QUESTIONS ──────────────────────────────────────────────────────
-
-CREATE TABLE quiz_questions (
-  id            SERIAL PRIMARY KEY,
-  quiz_id       INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
-  question_text TEXT NOT NULL,
-  question_type TEXT NOT NULL CHECK (question_type IN ('essay', 'multiple_choice')),
-  options       JSONB DEFAULT NULL,
-  correct_answer TEXT DEFAULT NULL,
-  points        INTEGER DEFAULT 1,
-  sort_order    INTEGER DEFAULT 0,
-  created_at    TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_questions_quiz ON quiz_questions(quiz_id);
-CREATE INDEX idx_questions_order ON quiz_questions(quiz_id, sort_order);
-
--- ─── 4. QUIZ_ASSIGNMENTS ───────────────────────────────────────────────────
-
-CREATE TABLE quiz_assignments (
-  id              SERIAL PRIMARY KEY,
-  quiz_id         INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
-  student_id      UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  teacher_id      UUID NOT NULL REFERENCES profiles(id) ON DELETE SET NULL,
-  status          TEXT NOT NULL DEFAULT 'assigned'
-                  CHECK (status IN ('assigned', 'in_progress', 'submitted', 'reviewed', 'flagged')),
-  risk_score      INTEGER DEFAULT NULL CHECK (risk_score >= 0 AND risk_score <= 100),
-  total_score     INTEGER DEFAULT NULL,
-  max_score       INTEGER DEFAULT NULL,
-  started_at      TIMESTAMPTZ DEFAULT NULL,
-  submitted_at    TIMESTAMPTZ DEFAULT NULL,
-  session_id      TEXT DEFAULT NULL,
-  window_changes  INTEGER DEFAULT 0,
-  created_at      TIMESTAMPTZ DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(quiz_id, student_id)
-);
-
-CREATE INDEX idx_qa_student ON quiz_assignments(student_id);
-CREATE INDEX idx_qa_teacher ON quiz_assignments(teacher_id);
-CREATE INDEX idx_qa_quiz ON quiz_assignments(quiz_id);
-CREATE INDEX idx_qa_status ON quiz_assignments(status);
-CREATE INDEX idx_qa_risk ON quiz_assignments(risk_score DESC NULLS LAST);
-
--- ─── 5. QUIZ_RESPONSES ─────────────────────────────────────────────────────
-
-CREATE TABLE quiz_responses (
-  id                  SERIAL PRIMARY KEY,
-  quiz_assignment_id  INTEGER NOT NULL REFERENCES quiz_assignments(id) ON DELETE CASCADE,
-  question_id         INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
-  answer_text         TEXT DEFAULT '',
-  selected_option     TEXT DEFAULT NULL,
-  is_correct          BOOLEAN DEFAULT NULL,
-  score               INTEGER DEFAULT NULL,
-  created_at          TIMESTAMPTZ DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(quiz_assignment_id, question_id)
-);
-
-CREATE INDEX idx_responses_assignment ON quiz_responses(quiz_assignment_id);
-CREATE INDEX idx_responses_question ON quiz_responses(question_id);
-
--- ─── 6. KEYSTROKE_LOGS ──────────────────────────────────────────────────────
-
-CREATE TABLE keystroke_logs (
-  id                  SERIAL PRIMARY KEY,
-  quiz_assignment_id  INTEGER NOT NULL REFERENCES quiz_assignments(id) ON DELETE CASCADE,
-  session_id          TEXT NOT NULL,
-  timestamp           TIMESTAMPTZ DEFAULT NOW(),
-  events              JSONB NOT NULL DEFAULT '[]',
-  wpm                 REAL DEFAULT 0,
-  burst_score         REAL DEFAULT 0,
-  avg_latency         REAL DEFAULT 0,
-  peak_wpm            REAL DEFAULT 0,
-  paste_chars         INTEGER DEFAULT 0,
-  paste_events        INTEGER DEFAULT 0,
-  total_keys          INTEGER DEFAULT 0,
-  wpm_history         JSONB DEFAULT '[]',
-  nonce               TEXT,
-  signature           TEXT,
-  created_at          TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_keystroke_qa ON keystroke_logs(quiz_assignment_id);
-CREATE INDEX idx_keystroke_session ON keystroke_logs(session_id);
-CREATE INDEX idx_keystroke_timestamp ON keystroke_logs(quiz_assignment_id, timestamp DESC);
-
--- ─── 7. WINDOW_CHANGE_LOGS ─────────────────────────────────────────────────
-
-CREATE TABLE window_change_logs (
-  id                  SERIAL PRIMARY KEY,
-  quiz_assignment_id  INTEGER NOT NULL REFERENCES quiz_assignments(id) ON DELETE CASCADE,
-  session_id          TEXT NOT NULL,
-  event_type          TEXT NOT NULL CHECK (event_type IN ('blur', 'focus')),
-  timestamp           TIMESTAMPTZ DEFAULT NOW(),
-  away_duration_ms    INTEGER DEFAULT NULL,
-  page_url            TEXT DEFAULT NULL,
-  created_at          TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_window_qa ON window_change_logs(quiz_assignment_id);
-CREATE INDEX idx_window_session ON window_change_logs(session_id);
-CREATE INDEX idx_window_timestamp ON window_change_logs(quiz_assignment_id, timestamp DESC);
-
--- ─── 8. SESSION_REPLAYS ────────────────────────────────────────────────────
-
-CREATE TABLE session_replays (
-  id                  SERIAL PRIMARY KEY,
-  quiz_assignment_id  INTEGER NOT NULL REFERENCES quiz_assignments(id) ON DELETE CASCADE,
-  session_id          TEXT NOT NULL,
-  question_id         INTEGER REFERENCES quiz_questions(id) ON DELETE SET NULL,
-  replay_events       JSONB NOT NULL DEFAULT '[]',
-  text_snapshots      JSONB NOT NULL DEFAULT '[]',
-  duration_ms         INTEGER DEFAULT 0,
-  total_events        INTEGER DEFAULT 0,
-  created_at          TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_replay_qa ON session_replays(quiz_assignment_id);
-CREATE INDEX idx_replay_session ON session_replays(session_id);
-CREATE INDEX idx_replay_question ON session_replays(question_id);
-
--- ─── 9. FINGERPRINTS ────────────────────────────────────────────────────────
-
-CREATE TABLE fingerprints (
-  id                    SERIAL PRIMARY KEY,
-  quiz_assignment_id    INTEGER NOT NULL REFERENCES quiz_assignments(id) ON DELETE CASCADE,
-  student_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  lexical_density       REAL NOT NULL DEFAULT 0,
-  avg_sentence_length   REAL NOT NULL DEFAULT 0,
-  vocabulary_diversity  REAL NOT NULL DEFAULT 0,
-  burst_score           REAL NOT NULL DEFAULT 0,
-  flesch_kincaid_score  REAL NOT NULL DEFAULT 0,
-  fingerprint_json      JSONB,
-  created_at            TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Auto-populate fingerprint_json from individual columns on insert/update
-CREATE OR REPLACE FUNCTION sync_fingerprint_json()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.fingerprint_json := jsonb_build_object(
+--
+-- Triggers `fingerprints`
+--
+DELIMITER $$
+CREATE TRIGGER `after_fingerprint_insert` AFTER INSERT ON `fingerprints` FOR EACH ROW BEGIN
+  UPDATE profiles SET
+    baseline_fingerprint = (
+      SELECT JSON_OBJECT(
+        'lexical_density',      AVG(lexical_density),
+        'avg_sentence_length',  AVG(avg_sentence_length),
+        'vocabulary_diversity', AVG(vocabulary_diversity),
+        'burst_score',          AVG(burst_score),
+        'flesch_kincaid_score', AVG(flesch_kincaid_score)
+      )
+      FROM fingerprints WHERE student_id = NEW.student_id
+    ),
+    baseline_sample_count = (
+      SELECT COUNT(*) FROM fingerprints WHERE student_id = NEW.student_id
+    )
+  WHERE id = NEW.student_id;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `before_fingerprint_insert` BEFORE INSERT ON `fingerprints` FOR EACH ROW BEGIN
+  SET NEW.fingerprint_json = JSON_OBJECT(
     'lexical_density',      NEW.lexical_density,
     'avg_sentence_length',  NEW.avg_sentence_length,
     'vocabulary_diversity', NEW.vocabulary_diversity,
     'burst_score',          NEW.burst_score,
     'flesch_kincaid_score', NEW.flesch_kincaid_score
   );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER before_fingerprint_upsert
-  BEFORE INSERT OR UPDATE ON fingerprints
-  FOR EACH ROW
-  EXECUTE FUNCTION sync_fingerprint_json();
-
-CREATE INDEX idx_fingerprints_student ON fingerprints(student_id);
-CREATE INDEX idx_fingerprints_qa ON fingerprints(quiz_assignment_id);
-CREATE INDEX idx_fingerprints_created ON fingerprints(student_id, created_at DESC);
-CREATE UNIQUE INDEX idx_fingerprints_unique_qa ON fingerprints(quiz_assignment_id);
-
--- ─── 10. ANALYSIS_RESULTS ───────────────────────────────────────────────────
-
-CREATE TABLE analysis_results (
-  id                  SERIAL PRIMARY KEY,
-  quiz_assignment_id  INTEGER NOT NULL REFERENCES quiz_assignments(id) ON DELETE CASCADE,
-  student_id          UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  risk_score          INTEGER NOT NULL CHECK (risk_score >= 0 AND risk_score <= 100),
-  confidence          REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
-  flags               JSONB NOT NULL DEFAULT '[]',
-  deviation           JSONB NOT NULL DEFAULT '{}',
-  z_scores            JSONB NOT NULL DEFAULT '{}',
-  explanation         TEXT NOT NULL DEFAULT '',
-  ai_explanation      TEXT DEFAULT NULL,
-  window_change_count INTEGER DEFAULT 0,
-  created_at          TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_analysis_qa ON analysis_results(quiz_assignment_id);
-CREATE INDEX idx_analysis_risk ON analysis_results(risk_score DESC);
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- ROW-LEVEL SECURITY (RLS) POLICIES
--- ═══════════════════════════════════════════════════════════════════════════════
-
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE quizzes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE quiz_questions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE quiz_assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE quiz_responses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE keystroke_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE window_change_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE session_replays ENABLE ROW LEVEL SECURITY;
-ALTER TABLE fingerprints ENABLE ROW LEVEL SECURITY;
-ALTER TABLE analysis_results ENABLE ROW LEVEL SECURITY;
-
--- ─── Profiles ───────────────────────────────────────────────────────────────
-
-CREATE POLICY profiles_self_read ON profiles
-  FOR SELECT USING (auth.uid() = id);
-
-CREATE POLICY profiles_self_update ON profiles
-  FOR UPDATE USING (auth.uid() = id);
-
-CREATE POLICY profiles_teacher_read ON profiles
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'teacher')
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `before_fingerprint_update` BEFORE UPDATE ON `fingerprints` FOR EACH ROW BEGIN
+  SET NEW.fingerprint_json = JSON_OBJECT(
+    'lexical_density',      NEW.lexical_density,
+    'avg_sentence_length',  NEW.avg_sentence_length,
+    'vocabulary_diversity', NEW.vocabulary_diversity,
+    'burst_score',          NEW.burst_score,
+    'flesch_kincaid_score', NEW.flesch_kincaid_score
   );
+END
+$$
+DELIMITER ;
 
-CREATE POLICY profiles_insert ON profiles
-  FOR INSERT WITH CHECK (auth.uid() = id);
+-- --------------------------------------------------------
 
--- ─── Quizzes ────────────────────────────────────────────────────────────────
+--
+-- Table structure for table `keystroke_logs`
+--
 
-CREATE POLICY quizzes_teacher_all ON quizzes
-  FOR ALL USING (auth.uid() = teacher_id);
+CREATE TABLE `keystroke_logs` (
+  `id` int(11) NOT NULL,
+  `quiz_assignment_id` int(11) NOT NULL,
+  `session_id` varchar(255) NOT NULL,
+  `timestamp` datetime DEFAULT current_timestamp(),
+  `events` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`events`)),
+  `wpm` float DEFAULT 0,
+  `burst_score` float DEFAULT 0,
+  `avg_latency` float DEFAULT 0,
+  `peak_wpm` float DEFAULT 0,
+  `paste_chars` int(11) DEFAULT 0,
+  `paste_events` int(11) DEFAULT 0,
+  `total_keys` int(11) DEFAULT 0,
+  `wpm_history` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`wpm_history`)),
+  `nonce` varchar(255) DEFAULT NULL,
+  `signature` text DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE POLICY quizzes_student_read ON quizzes
-  FOR SELECT USING (
-    status = 'published' AND EXISTS (
-      SELECT 1 FROM quiz_assignments qa WHERE qa.quiz_id = id AND qa.student_id = auth.uid()
-    )
-  );
+-- --------------------------------------------------------
 
--- ─── Quiz Questions ─────────────────────────────────────────────────────────
+--
+-- Table structure for table `profiles`
+--
 
-CREATE POLICY questions_teacher_all ON quiz_questions
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM quizzes q WHERE q.id = quiz_id AND q.teacher_id = auth.uid())
-  );
+CREATE TABLE `profiles` (
+  `id` int(11) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `full_name` varchar(255) DEFAULT NULL,
+  `avatar_url` text DEFAULT NULL,
+  `role` enum('teacher','student') NOT NULL,
+  `baseline_fingerprint` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`baseline_fingerprint`)),
+  `baseline_sample_count` int(11) DEFAULT 0,
+  `email_verified` tinyint(1) DEFAULT 0,
+  `verification_code` varchar(6) DEFAULT NULL,
+  `last_login_at` datetime DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE POLICY questions_student_read ON quiz_questions
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM quizzes q
-      JOIN quiz_assignments qa ON qa.quiz_id = q.id
-      WHERE q.id = quiz_id AND qa.student_id = auth.uid() AND q.status = 'published'
-    )
-  );
+--
+-- Dumping data for table `profiles`
+--
 
--- ─── Quiz Assignments ───────────────────────────────────────────────────────
+INSERT INTO `profiles` (`id`, `email`, `password`, `full_name`, `avatar_url`, `role`, `baseline_fingerprint`, `baseline_sample_count`, `email_verified`, `last_login_at`, `created_at`, `updated_at`) VALUES
+(1, 'teacher@integ.com', '$2y$10$mDo5/nvj9v3e.UaMKxAqeutewag2M0xf72BrQ2VbCd9vMXw0svDES', 'Default Teacher', NULL, 'teacher', NULL, 0, 1, NULL, '2026-03-06 00:47:21', '2026-03-06 00:47:21'),
+(2, 'student@integ.com', '$2y$10$mtiilNl1BccmhIs9uw4BM.w7YTWHJ1cmlt0RI0ITPptiL.23Wr0u.', 'Default Student', NULL, 'student', NULL, 0, 1, '2026-03-06 01:09:38', '2026-03-06 00:47:21', '2026-03-06 01:09:38');
 
-CREATE POLICY qa_student_read ON quiz_assignments
-  FOR SELECT USING (auth.uid() = student_id);
+-- --------------------------------------------------------
 
-CREATE POLICY qa_student_update ON quiz_assignments
-  FOR UPDATE USING (auth.uid() = student_id);
+--
+-- Table structure for table `quizzes`
+--
 
-CREATE POLICY qa_teacher_all ON quiz_assignments
-  FOR ALL USING (auth.uid() = teacher_id);
+CREATE TABLE `quizzes` (
+  `id` int(11) NOT NULL,
+  `teacher_id` int(11) NOT NULL,
+  `title` varchar(500) NOT NULL,
+  `description` text DEFAULT '',
+  `type` enum('essay','multiple_choice','mixed') NOT NULL,
+  `status` enum('draft','published','closed') NOT NULL DEFAULT 'draft',
+  `time_limit_mins` int(11) DEFAULT NULL,
+  `due_date` datetime DEFAULT NULL,
+  `settings` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`settings`)),
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Quiz Responses ─────────────────────────────────────────────────────────
+-- --------------------------------------------------------
 
-CREATE POLICY responses_student_write ON quiz_responses
-  FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.student_id = auth.uid())
-  );
+--
+-- Table structure for table `quiz_assignments`
+--
 
-CREATE POLICY responses_student_update ON quiz_responses
-  FOR UPDATE USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.student_id = auth.uid())
-  );
+CREATE TABLE `quiz_assignments` (
+  `id` int(11) NOT NULL,
+  `quiz_id` int(11) NOT NULL,
+  `student_id` int(11) NOT NULL,
+  `teacher_id` int(11) DEFAULT NULL,
+  `status` enum('assigned','in_progress','submitted','reviewed','flagged') NOT NULL DEFAULT 'assigned',
+  `risk_score` int(11) DEFAULT NULL,
+  `total_score` int(11) DEFAULT NULL,
+  `max_score` int(11) DEFAULT NULL,
+  `started_at` datetime DEFAULT NULL,
+  `submitted_at` datetime DEFAULT NULL,
+  `session_id` varchar(255) DEFAULT NULL,
+  `window_changes` int(11) DEFAULT 0,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ;
 
-CREATE POLICY responses_student_read ON quiz_responses
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.student_id = auth.uid())
-  );
+-- --------------------------------------------------------
 
-CREATE POLICY responses_teacher_read ON quiz_responses
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.teacher_id = auth.uid())
-  );
+--
+-- Table structure for table `quiz_questions`
+--
 
--- ─── Keystroke Logs ─────────────────────────────────────────────────────────
+CREATE TABLE `quiz_questions` (
+  `id` int(11) NOT NULL,
+  `quiz_id` int(11) NOT NULL,
+  `question_text` text NOT NULL,
+  `question_type` enum('essay','multiple_choice') NOT NULL,
+  `options` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`options`)),
+  `correct_answer` varchar(500) DEFAULT NULL,
+  `points` int(11) DEFAULT 1,
+  `sort_order` int(11) DEFAULT 0,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE POLICY keystroke_student_insert ON keystroke_logs
-  FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.student_id = auth.uid())
-  );
+-- --------------------------------------------------------
 
-CREATE POLICY keystroke_teacher_read ON keystroke_logs
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.teacher_id = auth.uid())
-  );
+--
+-- Table structure for table `quiz_responses`
+--
 
--- ─── Window Change Logs ─────────────────────────────────────────────────────
+CREATE TABLE `quiz_responses` (
+  `id` int(11) NOT NULL,
+  `quiz_assignment_id` int(11) NOT NULL,
+  `question_id` int(11) NOT NULL,
+  `answer_text` text DEFAULT '',
+  `selected_option` varchar(500) DEFAULT NULL,
+  `is_correct` tinyint(1) DEFAULT NULL,
+  `score` int(11) DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE POLICY window_student_insert ON window_change_logs
-  FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.student_id = auth.uid())
-  );
+-- --------------------------------------------------------
 
-CREATE POLICY window_teacher_read ON window_change_logs
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.teacher_id = auth.uid())
-  );
+--
+-- Table structure for table `session_replays`
+--
 
--- ─── Session Replays ────────────────────────────────────────────────────────
+CREATE TABLE `session_replays` (
+  `id` int(11) NOT NULL,
+  `quiz_assignment_id` int(11) NOT NULL,
+  `session_id` varchar(255) NOT NULL,
+  `question_id` int(11) DEFAULT NULL,
+  `replay_events` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`replay_events`)),
+  `text_snapshots` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`text_snapshots`)),
+  `duration_ms` int(11) DEFAULT 0,
+  `total_events` int(11) DEFAULT 0,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE POLICY replay_student_insert ON session_replays
-  FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.student_id = auth.uid())
-  );
+-- --------------------------------------------------------
 
-CREATE POLICY replay_teacher_read ON session_replays
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.teacher_id = auth.uid())
-  );
+--
+-- Table structure for table `window_change_logs`
+--
 
--- ─── Fingerprints ───────────────────────────────────────────────────────────
+CREATE TABLE `window_change_logs` (
+  `id` int(11) NOT NULL,
+  `quiz_assignment_id` int(11) NOT NULL,
+  `session_id` varchar(255) NOT NULL,
+  `event_type` enum('blur','focus') NOT NULL,
+  `timestamp` datetime DEFAULT current_timestamp(),
+  `away_duration_ms` int(11) DEFAULT NULL,
+  `page_url` text DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE POLICY fingerprints_student_read ON fingerprints
-  FOR SELECT USING (auth.uid() = student_id);
-
-CREATE POLICY fingerprints_teacher_read ON fingerprints
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.teacher_id = auth.uid())
-  );
-
--- ─── Analysis Results ───────────────────────────────────────────────────────
-
-CREATE POLICY analysis_teacher_read ON analysis_results
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM quiz_assignments qa WHERE qa.id = quiz_assignment_id AND qa.teacher_id = auth.uid())
-  );
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- HELPER FUNCTIONS & TRIGGERS
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Auto-update student baseline when a new fingerprint is inserted
-CREATE OR REPLACE FUNCTION update_student_baseline(p_student_id UUID)
-RETURNS VOID AS $$
-BEGIN
-  UPDATE profiles SET
-    baseline_fingerprint = (
-      SELECT jsonb_build_object(
-        'lexical_density', AVG(lexical_density),
-        'avg_sentence_length', AVG(avg_sentence_length),
-        'vocabulary_diversity', AVG(vocabulary_diversity),
-        'burst_score', AVG(burst_score),
-        'flesch_kincaid_score', AVG(flesch_kincaid_score)
-      )
-      FROM fingerprints WHERE student_id = p_student_id
-    ),
-    baseline_sample_count = (
-      SELECT COUNT(*) FROM fingerprints WHERE student_id = p_student_id
-    ),
-    updated_at = NOW()
-  WHERE id = p_student_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION trigger_update_baseline()
-RETURNS TRIGGER AS $$
-BEGIN
-  PERFORM update_student_baseline(NEW.student_id);
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER after_fingerprint_insert
-  AFTER INSERT ON fingerprints
-  FOR EACH ROW
-  EXECUTE FUNCTION trigger_update_baseline();
-
--- Auto-increment window_changes count on quiz_assignments
-CREATE OR REPLACE FUNCTION trigger_increment_window_changes()
-RETURNS TRIGGER AS $$
-BEGIN
+--
+-- Triggers `window_change_logs`
+--
+DELIMITER $$
+CREATE TRIGGER `after_window_change_insert` AFTER INSERT ON `window_change_logs` FOR EACH ROW BEGIN
   IF NEW.event_type = 'blur' THEN
     UPDATE quiz_assignments
-    SET window_changes = window_changes + 1, updated_at = NOW()
+    SET window_changes = window_changes + 1
     WHERE id = NEW.quiz_assignment_id;
   END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+END
+$$
+DELIMITER ;
 
-CREATE TRIGGER after_window_change_insert
-  AFTER INSERT ON window_change_logs
-  FOR EACH ROW
-  EXECUTE FUNCTION trigger_increment_window_changes();
+--
+-- Indexes for dumped tables
+--
 
--- Auto-create profile after Supabase auth signup
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, email, full_name, role)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
-    COALESCE(NEW.raw_user_meta_data->>'role', 'student')
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+--
+-- Indexes for table `analysis_results`
+--
+ALTER TABLE `analysis_results`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_analysis_qa` (`quiz_assignment_id`),
+  ADD KEY `idx_analysis_risk` (`risk_score`),
+  ADD KEY `fk_analysis_student` (`student_id`);
 
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW
-  EXECUTE FUNCTION handle_new_user();
+--
+-- Indexes for table `fingerprints`
+--
+ALTER TABLE `fingerprints`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `idx_fingerprints_unique_qa` (`quiz_assignment_id`),
+  ADD KEY `idx_fingerprints_student` (`student_id`),
+  ADD KEY `idx_fingerprints_qa` (`quiz_assignment_id`),
+  ADD KEY `idx_fingerprints_created` (`student_id`,`created_at`);
 
--- Updated_at auto-update trigger
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+--
+-- Indexes for table `keystroke_logs`
+--
+ALTER TABLE `keystroke_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_keystroke_qa` (`quiz_assignment_id`),
+  ADD KEY `idx_keystroke_session` (`session_id`),
+  ADD KEY `idx_keystroke_timestamp` (`quiz_assignment_id`,`timestamp`);
 
-CREATE TRIGGER set_updated_at_profiles BEFORE UPDATE ON profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER set_updated_at_quizzes BEFORE UPDATE ON quizzes FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER set_updated_at_qa BEFORE UPDATE ON quiz_assignments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER set_updated_at_responses BEFORE UPDATE ON quiz_responses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+--
+-- Indexes for table `profiles`
+--
+ALTER TABLE `profiles`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_profiles_email` (`email`),
+  ADD KEY `idx_profiles_role` (`role`),
+  ADD KEY `idx_profiles_email` (`email`);
+
+--
+-- Indexes for table `quizzes`
+--
+ALTER TABLE `quizzes`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_quizzes_teacher` (`teacher_id`),
+  ADD KEY `idx_quizzes_status` (`status`);
+
+--
+-- Indexes for table `quiz_assignments`
+--
+ALTER TABLE `quiz_assignments`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_qa_quiz_student` (`quiz_id`,`student_id`),
+  ADD KEY `idx_qa_student` (`student_id`),
+  ADD KEY `idx_qa_teacher` (`teacher_id`),
+  ADD KEY `idx_qa_quiz` (`quiz_id`),
+  ADD KEY `idx_qa_status` (`status`),
+  ADD KEY `idx_qa_risk` (`risk_score`);
+
+--
+-- Indexes for table `quiz_questions`
+--
+ALTER TABLE `quiz_questions`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_questions_quiz` (`quiz_id`),
+  ADD KEY `idx_questions_order` (`quiz_id`,`sort_order`);
+
+--
+-- Indexes for table `quiz_responses`
+--
+ALTER TABLE `quiz_responses`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_responses_qa_question` (`quiz_assignment_id`,`question_id`),
+  ADD KEY `idx_responses_assignment` (`quiz_assignment_id`),
+  ADD KEY `idx_responses_question` (`question_id`);
+
+--
+-- Indexes for table `session_replays`
+--
+ALTER TABLE `session_replays`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_replay_qa` (`quiz_assignment_id`),
+  ADD KEY `idx_replay_session` (`session_id`),
+  ADD KEY `idx_replay_question` (`question_id`);
+
+--
+-- Indexes for table `window_change_logs`
+--
+ALTER TABLE `window_change_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_window_qa` (`quiz_assignment_id`),
+  ADD KEY `idx_window_session` (`session_id`),
+  ADD KEY `idx_window_timestamp` (`quiz_assignment_id`,`timestamp`);
+
+--
+-- AUTO_INCREMENT for dumped tables
+--
+
+--
+-- AUTO_INCREMENT for table `analysis_results`
+--
+ALTER TABLE `analysis_results`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fingerprints`
+--
+ALTER TABLE `fingerprints`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `keystroke_logs`
+--
+ALTER TABLE `keystroke_logs`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `profiles`
+--
+ALTER TABLE `profiles`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
+-- AUTO_INCREMENT for table `quizzes`
+--
+ALTER TABLE `quizzes`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `quiz_assignments`
+--
+ALTER TABLE `quiz_assignments`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `quiz_questions`
+--
+ALTER TABLE `quiz_questions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `quiz_responses`
+--
+ALTER TABLE `quiz_responses`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `session_replays`
+--
+ALTER TABLE `session_replays`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `window_change_logs`
+--
+ALTER TABLE `window_change_logs`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- Constraints for dumped tables
+--
+
+--
+-- Constraints for table `analysis_results`
+--
+ALTER TABLE `analysis_results`
+  ADD CONSTRAINT `fk_analysis_qa` FOREIGN KEY (`quiz_assignment_id`) REFERENCES `quiz_assignments` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_analysis_student` FOREIGN KEY (`student_id`) REFERENCES `profiles` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fingerprints`
+--
+ALTER TABLE `fingerprints`
+  ADD CONSTRAINT `fk_fingerprints_qa` FOREIGN KEY (`quiz_assignment_id`) REFERENCES `quiz_assignments` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_fingerprints_student` FOREIGN KEY (`student_id`) REFERENCES `profiles` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `keystroke_logs`
+--
+ALTER TABLE `keystroke_logs`
+  ADD CONSTRAINT `fk_keystroke_qa` FOREIGN KEY (`quiz_assignment_id`) REFERENCES `quiz_assignments` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `quizzes`
+--
+ALTER TABLE `quizzes`
+  ADD CONSTRAINT `fk_quizzes_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `profiles` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `quiz_assignments`
+--
+ALTER TABLE `quiz_assignments`
+  ADD CONSTRAINT `fk_qa_quiz` FOREIGN KEY (`quiz_id`) REFERENCES `quizzes` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_qa_student` FOREIGN KEY (`student_id`) REFERENCES `profiles` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_qa_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `profiles` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `quiz_questions`
+--
+ALTER TABLE `quiz_questions`
+  ADD CONSTRAINT `fk_questions_quiz` FOREIGN KEY (`quiz_id`) REFERENCES `quizzes` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `quiz_responses`
+--
+ALTER TABLE `quiz_responses`
+  ADD CONSTRAINT `fk_responses_assignment` FOREIGN KEY (`quiz_assignment_id`) REFERENCES `quiz_assignments` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_responses_question` FOREIGN KEY (`question_id`) REFERENCES `quiz_questions` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `session_replays`
+--
+ALTER TABLE `session_replays`
+  ADD CONSTRAINT `fk_replay_qa` FOREIGN KEY (`quiz_assignment_id`) REFERENCES `quiz_assignments` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_replay_question` FOREIGN KEY (`question_id`) REFERENCES `quiz_questions` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `window_change_logs`
+--
+ALTER TABLE `window_change_logs`
+  ADD CONSTRAINT `fk_window_qa` FOREIGN KEY (`quiz_assignment_id`) REFERENCES `quiz_assignments` (`id`) ON DELETE CASCADE;
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;

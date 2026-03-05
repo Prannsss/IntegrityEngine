@@ -58,7 +58,7 @@ export class EmailService {
   // ─── Template: Welcome Email ──────────────────────────────────────────
 
   async sendWelcomeEmail(email: string, fullName: string, role: string) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:9002';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     return this.sendEmail({
       to: [{ email, name: fullName }],
       subject: 'Welcome to Integrity Engine',
@@ -94,7 +94,7 @@ export class EmailService {
     quizTitle: string,
     dueDate: string | null
   ) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:9002';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const dueLine = dueDate
       ? `<p style="color: #A89BB5;">Due date: <strong style="color: #F0ECF4;">${new Date(dueDate).toLocaleDateString()}</strong></p>`
       : '';
@@ -134,7 +134,7 @@ export class EmailService {
     quizTitle: string,
     riskScore: number
   ) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:9002';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const riskColor = riskScore >= 76 ? '#EF4444' : riskScore >= 56 ? '#F97316' : '#EAB308';
 
     return this.sendEmail({

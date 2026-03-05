@@ -3,8 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Request, Response } from 'express';
-import { ResponseModel } from '../models/response.model';
-import { AssignmentModel } from '../models/assignment.model';
+import { ResponseModel } from '../Models/response.model';
+import { AssignmentModel } from '../Models/assignment.model';
 
 const responseModel = new ResponseModel();
 const assignmentModel = new AssignmentModel();

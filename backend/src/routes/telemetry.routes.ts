@@ -3,14 +3,14 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { Router } from 'express';
-import { optionalAuth } from '../middleware/auth';
+import { optionalAuth } from '../Middleware/auth';
 import {
   postHeartbeat,
   postWindowChange,
   getWindowChanges,
   postReplay,
   getReplays,
-} from '../controllers/telemetry.controller';
+} from '../Controllers/telemetry.controller';
 
 export const telemetryRoutes = Router();
 
