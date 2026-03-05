@@ -84,11 +84,23 @@ export class AssignmentModel {
     );
   }
 
+  async updateScoreAndStatus(assignmentId: string, totalScore: number, maxScore: number, status?: string) {
+    const updates: Record<string, any> = { total_score: totalScore, max_score: maxScore };
+    if (status) updates.status = status;
+    assignments.update({ id: Number(assignmentId) } as any, updates as any);
+  }
+
   async updateRiskScore(assignmentId: string, riskScore: number) {
     assignments.update(
       { id: Number(assignmentId) } as any,
       { risk_score: riskScore } as any
     );
+  }
+
+  async getQuizForAssignment(assignmentId: string) {
+    const a = assignments.findOne({ id: Number(assignmentId) } as any);
+    if (!a) return null;
+    return quizzes.findOne({ id: a.quiz_id } as any);
   }
 
   async getQuizWithStudents(quizId: string, studentIds: string[]) {

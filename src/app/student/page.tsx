@@ -253,10 +253,11 @@ function AssignmentCard({
 }) {
   const quiz = assignment.quizzes;
   const router = useRouter();
-  const canTake = assignment.status === 'assigned' || assignment.status === 'in_progress';
+  const isPastDue = quiz?.due_date ? new Date() > new Date(quiz.due_date) : false;
+  const canTake = (assignment.status === 'assigned' || assignment.status === 'in_progress') && !isPastDue;
 
   return (
-    <Card className={`glass hover-lift group animate-slide-up`} style={{ animationDelay: `${index * 0.05}s` }}>
+    <Card className={`glass hover-lift group animate-slide-up ${isPastDue && (assignment.status === 'assigned' || assignment.status === 'in_progress') ? 'opacity-60' : ''}`} style={{ animationDelay: `${index * 0.05}s` }}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1.5 flex-1 min-w-0">
@@ -265,7 +266,12 @@ function AssignmentCard({
               {quiz?.description || 'No description provided'}
             </CardDescription>
           </div>
-          {statusBadge(assignment.status)}
+          <div className="flex items-center gap-1.5">
+            {isPastDue && (assignment.status === 'assigned' || assignment.status === 'in_progress') && (
+              <Badge className="bg-red-500/10 text-red-400 border border-red-400/20">Past Due</Badge>
+            )}
+            {statusBadge(assignment.status)}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -282,8 +288,9 @@ function AssignmentCard({
               </span>
             )}
             {quiz?.due_date && (
-              <span className="flex items-center gap-1.5 bg-white/[0.03] rounded-md px-2 py-1">
-                Due {new Date(quiz.due_date).toLocaleDateString()}
+              <span className={`flex items-center gap-1.5 rounded-md px-2 py-1 ${isPastDue ? 'bg-red-500/10 text-red-400' : 'bg-white/[0.03]'}`}>
+                <Clock className="w-3 h-3" />
+                {isPastDue ? 'Was due' : 'Due'} {new Date(quiz.due_date).toLocaleDateString()}
               </span>
             )}
             {assignment.status === 'flagged' && (
@@ -307,6 +314,9 @@ function AssignmentCard({
               {assignment.status === 'in_progress' ? 'Continue' : 'Start'}
               <ArrowRight className="w-3 h-3 transition-transform group-hover/btn:translate-x-0.5" />
             </Button>
+          )}
+          {isPastDue && (assignment.status === 'assigned' || assignment.status === 'in_progress') && (
+            <span className="text-xs text-red-400 ml-2">Deadline passed</span>
           )}
         </div>
       </CardContent>

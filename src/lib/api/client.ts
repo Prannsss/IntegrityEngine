@@ -126,6 +126,32 @@ export function submitResponses(payload: SubmitResponsesPayload) {
   return apiPost<{ success: boolean; total_score: number; max_score: number }>('/api/quiz-responses/submit', payload);
 }
 
+export type StudentResponse = {
+  id: number;
+  question_id: number;
+  question_text: string;
+  question_type: string;
+  options: string[] | null;
+  correct_answer: string | null;
+  points: number;
+  sort_order: number;
+  answer_text: string;
+  selected_option: string | null;
+  is_correct: boolean | null;
+  score: number | null;
+};
+
+export function getResponses(qaId: string | number) {
+  return apiGet<{ responses: StudentResponse[] }>(`/api/quiz-responses?quiz_assignment_id=${qaId}`);
+}
+
+export function scoreResponse(responseId: string | number, score: number) {
+  return apiPatch<{ success: boolean; total_score: number; max_score: number; all_scored: boolean }>(
+    `/api/quiz-responses/${responseId}/score`,
+    { score }
+  );
+}
+
 // ─── Telemetry endpoints ─────────────────────────────────────────────────────
 
 export type HeartbeatPayload = {

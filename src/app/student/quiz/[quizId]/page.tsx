@@ -328,6 +328,26 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
     );
   }
 
+  const isPastDue = quiz.due_date ? new Date() > new Date(quiz.due_date) : false;
+  if (isPastDue && assignment?.status !== 'submitted' && assignment?.status !== 'reviewed') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="glass-strong rounded-2xl p-8 text-center max-w-sm border border-red-500/20">
+          <div className="w-14 h-14 rounded-2xl bg-red-500/10 flex items-center justify-center mx-auto mb-3">
+            <Clock className="w-7 h-7 text-red-400" />
+          </div>
+          <p className="font-headline text-lg mb-1 text-red-400">Deadline Passed</p>
+          <p className="text-muted-foreground text-sm">
+            This quiz was due {new Date(quiz.due_date!).toLocaleString()} and can no longer be submitted.
+          </p>
+          <Button variant="outline" size="sm" className="mt-4 border-white/[0.08]" onClick={() => router.push('/student')}>
+            <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const question = questions[currentQ];
   const progress = ((currentQ + 1) / questions.length) * 100;
 

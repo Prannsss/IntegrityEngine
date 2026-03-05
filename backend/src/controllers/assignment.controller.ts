@@ -101,6 +101,19 @@ export async function getAssignment(req: Request, res: Response): Promise<void> 
 export async function updateAssignment(req: Request, res: Response): Promise<void> {
   try {
     const updates = req.body;
+
+    // Deadline enforcement: block students from starting a quiz past due_date
+    if (updates.status === 'in_progress' && req.user?.role === 'student') {
+      const assignment = assignments.findOne({ id: Number(req.params.id) } as any);
+      if (assignment) {
+        const quiz = quizzes.findOne({ id: assignment.quiz_id } as any);
+        if (quiz?.due_date && new Date() > new Date(quiz.due_date)) {
+          res.status(403).json({ error: 'This quiz is past its deadline.' });
+          return;
+        }
+      }
+    }
+
     const updated = assignments.update({ id: Number(req.params.id) } as any, updates);
     if (updated.length === 0) {
       res.status(404).json({ error: 'Assignment not found' });
