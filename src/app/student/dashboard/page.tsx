@@ -10,6 +10,17 @@ import { Progress } from '@/components/ui/progress';
 import { IELogo } from '@/components/ui/ie-logo';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Loader2,
   LogOut,
   Calendar,
@@ -114,9 +125,25 @@ export default function StudentDashboard() {
               {user?.full_name}
             </span>
             <ThemeToggle />
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="h-8 px-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-white/5">
-              <LogOut className="w-4 h-4" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 px-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-white/5">
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure you want to log out?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will end your current session. You will need to log in again to access your dashboard.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleLogout}>Log out</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </nav>
       </div>
@@ -192,21 +219,24 @@ export default function StudentDashboard() {
               <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
                 {assignments.map((assignment) => {
                   const isCompleted = ['submitted', 'reviewed'].includes(assignment.status);
+                  const isClosed = assignment.quiz_status === 'closed';
+                  const isAccessible = !isCompleted && !isClosed;
                   
                   return (
                     <div 
                       key={assignment.id} 
                       onClick={() => {
-                        if (!isCompleted) router.push(`/student/quiz/${assignment.quiz_id}?qa=${assignment.id}`);
+                        if (isAccessible) router.push(`/student/quiz/${assignment.quiz_id}?qa=${assignment.id}`);
                       }}
-                      className={`p-5 flex items-start gap-4 transition-colors group ${!isCompleted ? 'hover:bg-slate-50 dark:hover:bg-zinc-800/50 cursor-pointer' : 'opacity-60'}`}
+                      className={`p-5 flex items-start gap-4 transition-colors group ${isAccessible ? 'hover:bg-slate-50 dark:hover:bg-zinc-800/50 cursor-pointer' : 'opacity-60'}`}
                     >
                       <div className="pt-0.5" onClick={(e) => handleToggleTask(assignment.id, e)}>
                          <Checkbox checked={isCompleted} className={isCompleted ? 'data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600' : ''} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className={`font-semibold text-sm mb-1 line-clamp-1 ${isCompleted ? 'line-through text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors'}`}>
+                        <h3 className={`font-semibold text-sm mb-1 line-clamp-1 ${isCompleted ? 'line-through text-slate-500 dark:text-slate-400' : isClosed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors'}`}>
                           {assignment.title}
+                          {isClosed && <span className="ml-2 text-[10px] font-bold text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded-full">CLOSED</span>}
                         </h3>
                         <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
                           {assignment.time_limit_mins && (

@@ -60,8 +60,8 @@ class AuthController
         $stmt->execute([$email, $hash, $fullName, $role, $verificationCode]);
         $userId = (int)$db->lastInsertId();
 
-        // In production, send verification email here
-        // For development, we auto-verify or return the code
+        // Send verification email via Brevo
+        self::sendVerificationEmail($email, $fullName, $verificationCode);
         
         echo json_encode([
             'success' => true,
@@ -236,8 +236,63 @@ class AuthController
         $db->prepare('UPDATE profiles SET verification_code = ? WHERE id = ?')
            ->execute([$code, $user['id']]);
 
-        // In production, send email with code here
+        // Send verification email via Brevo
+        self::sendVerificationEmail($email, '', $code);
 
         echo json_encode(['success' => true, 'message' => 'Verification code sent']);
+    }
+
+    /**
+     * Send a verification code email via Brevo (Sendinblue) API.
+     * Requires BREVO_API_KEY in .env. Fails silently if not configured.
+     */
+    private static function sendVerificationEmail(string $email, string $name, string $code): void
+    {
+        $apiKey = $_ENV['BREVO_API_KEY'] ?? '';
+        if (!$apiKey) return; // Skip if not configured
+
+        $senderEmail = $_ENV['BREVO_SENDER_EMAIL'] ?? 'noreply@integrityengine.app';
+        $senderName  = $_ENV['BREVO_SENDER_NAME'] ?? 'IntegrityEngine';
+        $appUrl      = $_ENV['FRONTEND_URL'] ?? 'http://localhost:3000';
+
+        $payload = json_encode([
+            'sender'      => ['email' => $senderEmail, 'name' => $senderName],
+            'to'          => [['email' => $email, 'name' => $name ?: $email]],
+            'subject'     => "Your IntegrityEngine Verification Code: {$code}",
+            'htmlContent' => '
+                <div style="font-family: Inter, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; background: #1A161D; color: #E0D8E8; border-radius: 12px;">
+                    <div style="text-align: center; margin-bottom: 24px;">
+                        <div style="width: 48px; height: 48px; background: rgba(97,46,192,0.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;">
+                            <span style="font-size: 24px;">🛡️</span>
+                        </div>
+                    </div>
+                    <h1 style="color: #F0ECF4; text-align: center; margin-bottom: 16px;">Verify Your Email</h1>
+                    <p style="color: #A89BB5; text-align: center; margin-bottom: 24px;">Enter the code below to verify your IntegrityEngine account:</p>
+                    <div style="text-align: center; margin: 24px 0;">
+                        <span style="display: inline-block; padding: 16px 32px; background: rgba(97,46,192,0.15); border: 2px solid rgba(97,46,192,0.4); border-radius: 12px; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #F0ECF4;">' . htmlspecialchars($code, ENT_QUOTES, 'UTF-8') . '</span>
+                    </div>
+                    <p style="color: #A89BB5; text-align: center; font-size: 13px;">This code expires in 24 hours. If you did not create an account, ignore this email.</p>
+                </div>
+            ',
+        ]);
+
+        $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => [
+                'accept: application/json',
+                'api-key: ' . $apiKey,
+                'content-type: application/json',
+            ],
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode >= 400) {
+            error_log('Brevo email error (' . $httpCode . '): ' . $response);
+        }
     }
 }

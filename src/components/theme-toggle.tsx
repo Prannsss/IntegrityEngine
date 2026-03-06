@@ -32,13 +32,13 @@ export function ThemeToggle({ className }: { className?: string }) {
       aria-label="Toggle theme"
       onClick={toggle}
       className={cn(
-        'w-9 h-9 rounded-xl hover:bg-white/10 dark:hover:bg-white/5 transition-colors relative',
+        'w-9 h-9 rounded-xl hover:bg-muted dark:hover:bg-white/5 transition-colors relative group',
         className
       )}
     >
       <span
         className={cn(
-          'flex items-center justify-center transition-transform',
+          'flex items-center justify-center transition-transform duration-500 group-hover:rotate-180',
           spinning ? 'animate-theme-spin' : ''
         )}
       >

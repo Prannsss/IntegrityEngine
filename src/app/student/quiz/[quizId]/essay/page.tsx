@@ -3,17 +3,48 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { IELogo } from "@/components/ui/ie-logo";
-import { Send, Clock, Wand2, Lightbulb, UserCircle, PenTool, CheckCircle2, Lock } from "lucide-react";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Send, Clock, Wand2, Lightbulb, UserCircle, PenTool, CheckCircle2, Lock, Loader2 } from "lucide-react";
+import { useToast } from '@/hooks/use-toast';
 
 export default function EssayQuizPage() {
+  const { toast } = useToast();
   const [draftText, setDraftText] = useState("");
   const [finalText, setFinalText] = useState("");
+  const [paraphrasingDraft, setParaphrasingDraft] = useState(false);
+  const [paraphrasingFinal, setParaphrasingFinal] = useState(false);
 
   const handleCarryOver = () => {
     setFinalText(draftText);
+  };
+
+  const handleParaphrase = async (target: "draft" | "final") => {
+    const text = target === "draft" ? draftText : finalText;
+    if (!text.trim()) return;
+
+    const setLoading = target === "draft" ? setParaphrasingDraft : setParaphrasingFinal;
+    const setText = target === "draft" ? setDraftText : setFinalText;
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai/paraphrase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Paraphrase failed");
+      setText(data.paraphrased);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const wordCount = finalText.trim() === "" ? 0 : finalText.trim().split(/\s+/).length;
@@ -84,14 +115,25 @@ export default function EssayQuizPage() {
                  <PenTool className="w-5 h-5" /> 
                  Drafting Area
                </div>
-               <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded p-1">
-                 {/* Toolbar mock */}
-                 <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-sm font-bold w-6 h-6 flex items-center justify-center">B</button>
-                 <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-sm italic w-6 h-6 flex items-center justify-center">I</button>
-                 <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-sm w-6 h-6 flex items-center justify-center list-disc">•</button>
-                 <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                 <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-xs w-6 h-6 flex items-center justify-center">↩</button>
-                 <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-xs w-6 h-6 flex items-center justify-center">↪</button>
+               <div className="flex items-center gap-2">
+                 <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded p-1">
+                   {/* Toolbar mock */}
+                   <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-sm font-bold w-6 h-6 flex items-center justify-center">B</button>
+                   <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-sm italic w-6 h-6 flex items-center justify-center">I</button>
+                   <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-sm w-6 h-6 flex items-center justify-center list-disc">•</button>
+                   <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                   <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-xs w-6 h-6 flex items-center justify-center">↩</button>
+                   <button className="p-1 hover:bg-gray-200 rounded text-gray-600 text-xs w-6 h-6 flex items-center justify-center">↪</button>
+                 </div>
+                 <Button
+                   variant="outline" size="sm"
+                   className="h-8 text-gray-600 border-gray-200 hover:bg-gray-50 bg-white rounded-full flex items-center gap-1.5"
+                   onClick={() => handleParaphrase("draft")}
+                   disabled={paraphrasingDraft || !draftText.trim()}
+                 >
+                   {paraphrasingDraft ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                   Paraphrase
+                 </Button>
                </div>
              </div>
              <Textarea 
@@ -99,6 +141,14 @@ export default function EssayQuizPage() {
                placeholder="Start brainstorming here... Your notes and drafts won't be graded."
                value={draftText}
                onChange={(e) => setDraftText(e.target.value)}
+               onCopy={e => {
+                 e.preventDefault();
+                 toast({ title: 'Not Allowed', description: 'Copying is disabled for essays.', variant: 'destructive' });
+               }}
+               onPaste={e => {
+                 e.preventDefault();
+                 toast({ title: 'Not Allowed', description: 'Pasting is disabled for essays.', variant: 'destructive' });
+               }}
              />
              <div className="p-4 bg-white border-t border-gray-50 flex justify-end rounded-b-xl">
                <Button onClick={handleCarryOver} className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-6 flex items-center gap-2">
@@ -116,8 +166,14 @@ export default function EssayQuizPage() {
                </div>
                <div className="flex items-center gap-4">
                  <span className="text-xs text-gray-500 font-medium tracking-wide uppercase">Word count: {wordCount}</span>
-                 <Button variant="outline" size="sm" className="h-8 text-blue-600 border-blue-200 hover:bg-blue-50 bg-white rounded-full flex items-center gap-2">
-                   <Wand2 className="w-4 h-4" /> Paraphrase
+                 <Button
+                   variant="outline" size="sm"
+                   className="h-8 text-blue-600 border-blue-200 hover:bg-blue-50 bg-white rounded-full flex items-center gap-2"
+                   onClick={() => handleParaphrase("final")}
+                   disabled={paraphrasingFinal || !finalText.trim()}
+                 >
+                   {paraphrasingFinal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                   {paraphrasingFinal ? "Paraphrasing…" : "Paraphrase"}
                  </Button>
                </div>
              </div>
@@ -126,6 +182,14 @@ export default function EssayQuizPage() {
                placeholder="Type your final graded response here..."
                value={finalText}
                onChange={(e) => setFinalText(e.target.value)}
+               onCopy={e => {
+                 e.preventDefault();
+                 toast({ title: 'Not Allowed', description: 'Copying is disabled for essays.', variant: 'destructive' });
+               }}
+               onPaste={e => {
+                 e.preventDefault();
+                 toast({ title: 'Not Allowed', description: 'Pasting is disabled for essays.', variant: 'destructive' });
+               }}
              />
              <div className="p-4 bg-white border-t border-gray-50 flex items-center justify-between rounded-b-xl text-xs text-gray-400">
                <div className="flex gap-4">

@@ -154,6 +154,11 @@ if ($uri === '/api/students/assignments' && $method === 'GET') {
     exit;
 }
 
+if (preg_match('#^/api/students/(\d+)/analytics$#', $uri, $m) && $method === 'GET') {
+    StudentController::analytics((int)$m[1]);
+    exit;
+}
+
 // ─── Response Routes ──────────────────────────────────────────────────────────
 
 if ($uri === '/api/quiz-responses/submit' && $method === 'POST') {

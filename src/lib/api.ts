@@ -153,6 +153,10 @@ class ApiClient {
     return this.request<{ success: boolean; assignments: StudentAssignment[] }>('/api/students/assignments');
   }
 
+  async getStudentAnalytics(studentId: number) {
+    return this.request<StudentAnalyticsResponse>(`/api/students/${studentId}/analytics`);
+  }
+
   // ─── Announcements ────────────────────────────────────────────────────────
 
   async announcements() {
@@ -290,7 +294,7 @@ export type QuizQuestion = {
   id: number;
   quiz_id: number;
   question_text: string;
-  question_type: 'essay' | 'multiple_choice';
+  question_type: 'essay' | 'multiple_choice' | 'identification';
   options: string[] | null;
   correct_answer: string | null;
   points: number;
@@ -378,7 +382,7 @@ export type CreateQuizInput = {
   settings?: Record<string, unknown>;
   questions: {
     question_text: string;
-    question_type: 'essay' | 'multiple_choice';
+    question_type: 'essay' | 'multiple_choice' | 'identification';
     options?: string[];
     correct_answer?: string;
     points?: number;
@@ -447,6 +451,14 @@ export type SessionReplay = {
   created_at: string;
 };
 
+export type FingerprintData = {
+  lexical_density: number;
+  avg_sentence_length: number;
+  vocabulary_diversity: number;
+  burst_score: number;
+  flesch_kincaid_score: number;
+};
+
 export type AnalysisResponse = {
   success: boolean;
   risk_score: number;
@@ -455,6 +467,8 @@ export type AnalysisResponse = {
   deviation: Record<string, number>;
   z_scores: Record<string, number>;
   explanation: string;
+  current_fingerprint: FingerprintData | null;
+  baseline_fingerprint: FingerprintData | null;
 };
 
 export type AnomalyFlag = {
@@ -477,6 +491,54 @@ export type Material = {
   file_size: number;
   created_at: string;
   updated_at: string;
+};
+
+export type StudentAnalyticsAssignment = {
+  id: number;
+  quiz_id: number;
+  status: string;
+  risk_score: number | null;
+  total_score: number | null;
+  max_score: number | null;
+  started_at: string | null;
+  submitted_at: string | null;
+  window_changes: number;
+  created_at: string;
+  quiz_title: string;
+  quiz_type: string;
+  content_type: string;
+};
+
+export type StudentAnalysisResult = {
+  id: number;
+  quiz_assignment_id: number;
+  risk_score: number;
+  confidence: number;
+  flags: Array<Record<string, unknown>>;
+  deviation: Record<string, number>;
+  z_scores: Record<string, number>;
+  explanation: string;
+  ai_explanation: string | null;
+  window_change_count: number;
+  created_at: string;
+};
+
+export type StudentKeystrokeSummary = {
+  quiz_assignment_id: number;
+  avg_wpm: number;
+  peak_wpm: number;
+  total_paste_chars: number;
+  total_paste_events: number;
+  total_keys: number;
+};
+
+export type StudentAnalyticsResponse = {
+  success: boolean;
+  student: StudentProfile;
+  assignments: StudentAnalyticsAssignment[];
+  analyses: StudentAnalysisResult[];
+  window_logs: WindowChangeLog[];
+  keystroke_summary: StudentKeystrokeSummary[];
 };
 
 // ─── Singleton Export ─────────────────────────────────────────────────────────

@@ -120,10 +120,17 @@ class AnalysisController
         // Factor: fingerprint deviation
         $deviation = [];
         $zScores = [];
+        $baseline = null;
+        $currentFp = null;
 
         if ($fingerprint && $assignment['baseline_fingerprint']) {
             $baseline = json_decode($assignment['baseline_fingerprint'], true);
-            $metrics = ['lexical_density', 'avg_sentence_length', 'vocabulary_diversity', 'burst_score', 'flesch_kincaid_score'];
+            $fpKeys = ['lexical_density', 'avg_sentence_length', 'vocabulary_diversity', 'burst_score', 'flesch_kincaid_score'];
+            $currentFp = [];
+            foreach ($fpKeys as $k) {
+                $currentFp[$k] = (float)($fingerprint[$k] ?? 0);
+            }
+            $metrics = $fpKeys;
 
             foreach ($metrics as $metric) {
                 $current  = (float)($fingerprint[$metric] ?? 0);
@@ -177,13 +184,15 @@ class AnalysisController
            ->execute([$riskScore, $qaId]);
 
         echo json_encode([
-            'success'    => true,
-            'risk_score' => $riskScore,
-            'confidence' => $confidence,
-            'flags'      => $flags,
-            'deviation'  => $deviation,
-            'z_scores'   => $zScores,
-            'explanation' => $explanation,
+            'success'              => true,
+            'risk_score'           => $riskScore,
+            'confidence'           => $confidence,
+            'flags'                => $flags,
+            'deviation'            => $deviation,
+            'z_scores'             => $zScores,
+            'explanation'          => $explanation,
+            'current_fingerprint'  => $currentFp,
+            'baseline_fingerprint' => $baseline,
         ]);
     }
 

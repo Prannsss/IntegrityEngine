@@ -12,6 +12,17 @@ import { IELogo } from '@/components/ui/ie-logo';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -36,7 +47,6 @@ import {
   BookOpen,
   Clock,
   Trash2,
-  Eye,
   UserPlus,
   CheckCircle,
   AlertTriangle,
@@ -46,7 +56,16 @@ import {
   GraduationCap,
   FileUp,
   File,
+  X,
+  CheckSquare,
+  PenLine,
+  ListChecks,
+  Type,
+  Calendar,
+  Ban,
+  Pencil,
 } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { gooeyToast } from 'goey-toast';
 
 type TabKey = 'quizzes' | 'students' | 'review' | 'materials';
@@ -117,9 +136,25 @@ export default function TeacherDashboard() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground hidden sm:block">{user?.full_name}</span>
             <ThemeToggle />
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="h-8 px-2.5 hover:bg-white/5 rounded-full">
-              <LogOut className="w-3.5 h-3.5" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 px-2.5 hover:bg-white/5 rounded-full">
+                  <LogOut className="w-3.5 h-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure you want to log out?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will end your current session. You will need to log in again to access your dashboard.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleLogout}>Log out</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </nav>
       </div>
@@ -215,15 +250,29 @@ const CONTENT_TYPES = [
   },
 ];
 
+type QuestionDraft = {
+  question_text: string;
+  question_type: 'essay' | 'multiple_choice' | 'identification';
+  options: string[];
+  correct_answer: string;
+  points: number;
+};
+
+const EMPTY_MCQ: QuestionDraft = { question_text: '', question_type: 'multiple_choice', options: ['', '', '', ''], correct_answer: '', points: 1 };
+const EMPTY_ESSAY: QuestionDraft = { question_text: '', question_type: 'essay', options: [], correct_answer: '', points: 1 };
+const EMPTY_IDENT: QuestionDraft = { question_text: '', question_type: 'identification', options: [], correct_answer: '', points: 1 };
+
 function QuizzesTab({ quizzes, students, onRefresh }: { quizzes: Quiz[]; students: StudentProfile[]; onRefresh: () => void }) {
-  const [step, setStep] = useState<'pick' | 'form'>('pick');
+  const [step, setStep] = useState<'pick' | 'form' | 'questions'>('pick');
   const [contentType, setContentType] = useState<'quiz' | 'exam' | 'assignment'>('quiz');
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'essay' | 'multiple_choice' | 'mixed'>('essay');
   const [timeLimit, setTimeLimit] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [questions, setQuestions] = useState<QuestionDraft[]>([]);
 
   const selectedMeta = CONTENT_TYPES.find(c => c.value === contentType)!;
 
@@ -234,19 +283,67 @@ function QuizzesTab({ quizzes, students, onRefresh }: { quizzes: Quiz[]; student
     setDescription('');
     setType('essay');
     setTimeLimit('');
+    setDueDate('');
+    setQuestions([]);
+  };
+
+  const goToQuestions = () => {
+    if (!title.trim()) return;
+    // Initialize one empty question based on type
+    if (questions.length === 0) {
+      if (type === 'multiple_choice') setQuestions([{ ...EMPTY_MCQ }]);
+      else if (type === 'essay') setQuestions([{ ...EMPTY_ESSAY }]);
+      else setQuestions([{ ...EMPTY_ESSAY }]);
+    }
+    setStep('questions');
+  };
+
+  const addQuestion = (qType?: 'essay' | 'multiple_choice' | 'identification') => {
+    const t = qType || (type === 'multiple_choice' ? 'multiple_choice' : type === 'essay' ? 'essay' : 'essay');
+    if (t === 'multiple_choice') setQuestions(prev => [...prev, { ...EMPTY_MCQ }]);
+    else if (t === 'identification') setQuestions(prev => [...prev, { ...EMPTY_IDENT }]);
+    else setQuestions(prev => [...prev, { ...EMPTY_ESSAY }]);
+  };
+
+  const updateQuestion = (idx: number, patch: Partial<QuestionDraft>) => {
+    setQuestions(prev => prev.map((q, i) => i === idx ? { ...q, ...patch } : q));
+  };
+
+  const removeQuestion = (idx: number) => {
+    setQuestions(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateOption = (qIdx: number, optIdx: number, value: string) => {
+    setQuestions(prev => prev.map((q, i) => {
+      if (i !== qIdx) return q;
+      const opts = [...q.options];
+      opts[optIdx] = value;
+      return { ...q, options: opts };
+    }));
   };
 
   const handleCreate = async () => {
     if (!title.trim()) return;
     setCreating(true);
     try {
+      const mappedQuestions = questions
+        .filter(q => q.question_text.trim())
+        .map((q, i) => ({
+          question_text: q.question_text.trim(),
+          question_type: q.question_type === 'identification' ? 'essay' as const : q.question_type,
+          options: q.question_type === 'multiple_choice' ? q.options.filter(o => o.trim()) : undefined,
+          correct_answer: (q.question_type === 'multiple_choice' || q.question_type === 'identification') ? q.correct_answer || undefined : undefined,
+          points: q.points || 1,
+          sort_order: i,
+        }));
       await api.createQuiz({
         title: title.trim(),
         description: description.trim(),
         content_type: contentType,
         type,
         time_limit_mins: timeLimit ? parseInt(timeLimit, 10) : undefined,
-        questions: [],
+        due_date: dueDate || undefined,
+        questions: mappedQuestions,
       });
       gooeyToast.success(`${selectedMeta.label} created`);
       resetForm();
@@ -279,11 +376,11 @@ function QuizzesTab({ quizzes, students, onRefresh }: { quizzes: Quiz[]; student
               <Plus className="w-3.5 h-3.5 mr-1" /> New Content
             </Button>
           </DialogTrigger>
-          <DialogContent className="glass-strong border border-white/[0.08] max-w-md">
+          <DialogContent className={`glass-strong border border-white/[0.08] ${step === 'questions' ? 'max-w-2xl' : 'max-w-md'}`}>
             {step === 'pick' ? (
               <>
                 <DialogHeader>
-                  <DialogTitle className="font-headline">New Content</DialogTitle>
+                  <DialogTitle className="font-headline text-lg">New Content</DialogTitle>
                   <DialogDescription>Choose the type of content to create.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3 py-2">
@@ -291,7 +388,7 @@ function QuizzesTab({ quizzes, students, onRefresh }: { quizzes: Quiz[]; student
                     <button
                       key={ct.value}
                       onClick={() => { setContentType(ct.value); setStep('form'); }}
-                      className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all hover:scale-[1.01] text-left ${ct.color}`}
+                      className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all hover:scale-[1.01] hover:shadow-md text-left ${ct.color}`}
                     >
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${ct.color}`}>
                         {ct.icon}
@@ -304,7 +401,7 @@ function QuizzesTab({ quizzes, students, onRefresh }: { quizzes: Quiz[]; student
                   ))}
                 </div>
               </>
-            ) : (
+            ) : step === 'form' ? (
               <>
                 <DialogHeader>
                   <DialogTitle className="font-headline flex items-center gap-2">
@@ -313,11 +410,11 @@ function QuizzesTab({ quizzes, students, onRefresh }: { quizzes: Quiz[]; student
                     </span>
                     Create {selectedMeta.label}
                   </DialogTitle>
-                  <DialogDescription>Fill in the details. You can add questions in the editor.</DialogDescription>
+                  <DialogDescription>Fill in the details, then add questions.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
                   <div>
-                    <Label>Title</Label>
+                    <Label>Title <span className="text-red-400">*</span></Label>
                     <Input value={title} onChange={e => setTitle(e.target.value)} placeholder={`${selectedMeta.label} title`} className="mt-1" />
                   </div>
                   <div>
@@ -341,14 +438,141 @@ function QuizzesTab({ quizzes, students, onRefresh }: { quizzes: Quiz[]; student
                       <Input type="number" value={timeLimit} onChange={e => setTimeLimit(e.target.value)} placeholder="Optional" className="mt-1" />
                     </div>
                   </div>
+                  <div>
+                    <Label>Deadline</Label>
+                    <Input type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1" />
+                  </div>
                 </div>
                 <DialogFooter className="gap-2">
                   <Button variant="ghost" size="sm" onClick={() => setStep('pick')} className="rounded-full">
                     Back
                   </Button>
-                  <Button onClick={handleCreate} disabled={creating || !title.trim()} className="bg-primary hover:bg-primary/90 rounded-full">
+                  <Button onClick={goToQuestions} disabled={!title.trim()} className="bg-primary hover:bg-primary/90 rounded-full">
+                    Next: Add Questions
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="font-headline flex items-center gap-2">
+                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${selectedMeta.color}`}>
+                      {selectedMeta.icon}
+                    </span>
+                    Add Questions
+                  </DialogTitle>
+                  <DialogDescription>{title} — {type.replace('_', ' ')}</DialogDescription>
+                </DialogHeader>
+                <ScrollArea className="max-h-[420px] pr-3">
+                  <div className="space-y-4 py-2">
+                    {questions.map((q, idx) => (
+                      <div key={idx} className="p-4 rounded-xl border border-white/[0.08] bg-card/30 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                              Q{idx + 1}
+                            </Badge>
+                            {type === 'mixed' && (
+                              <Select value={q.question_type} onValueChange={v => updateQuestion(idx, { question_type: v as QuestionDraft['question_type'], options: v === 'multiple_choice' ? ['', '', '', ''] : [], correct_answer: '' })}>
+                                <SelectTrigger className="h-7 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="multiple_choice">
+                                    <span className="flex items-center gap-1.5"><ListChecks className="w-3 h-3" /> Multiple Choice</span>
+                                  </SelectItem>
+                                  <SelectItem value="essay">
+                                    <span className="flex items-center gap-1.5"><PenLine className="w-3 h-3" /> Essay</span>
+                                  </SelectItem>
+                                  <SelectItem value="identification">
+                                    <span className="flex items-center gap-1.5"><Type className="w-3 h-3" /> Identification</span>
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full hover:bg-red-500/10 text-muted-foreground hover:text-red-400" onClick={() => removeQuestion(idx)}>
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Question</Label>
+                          <Textarea
+                            value={q.question_text}
+                            onChange={e => updateQuestion(idx, { question_text: e.target.value })}
+                            placeholder="Enter your question..."
+                            className="mt-1 text-sm"
+                            rows={2}
+                          />
+                        </div>
+                        {q.question_type === 'multiple_choice' && (
+                          <div className="space-y-2">
+                            <Label className="text-xs">Choices</Label>
+                            {['A', 'B', 'C', 'D'].map((letter, optIdx) => (
+                              <div key={letter} className="flex items-center gap-2">
+                                <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 ${q.correct_answer === q.options[optIdx] && q.options[optIdx] ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-muted/20 text-muted-foreground border border-white/[0.06]'}`}>{letter}</span>
+                                <Input
+                                  value={q.options[optIdx] || ''}
+                                  onChange={e => updateOption(idx, optIdx, e.target.value)}
+                                  placeholder={`Option ${letter}`}
+                                  className="text-sm h-8"
+                                />
+                              </div>
+                            ))}
+                            <div>
+                              <Label className="text-xs">Correct Answer</Label>
+                              <Select value={q.correct_answer} onValueChange={v => updateQuestion(idx, { correct_answer: v })}>
+                                <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select correct answer" /></SelectTrigger>
+                                <SelectContent>
+                                  {q.options.map((opt, oi) => opt.trim() ? (
+                                    <SelectItem key={oi} value={opt}>{['A', 'B', 'C', 'D'][oi]}: {opt}</SelectItem>
+                                  ) : null)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        )}
+                        {q.question_type === 'identification' && (
+                          <div>
+                            <Label className="text-xs">Correct Answer</Label>
+                            <Input
+                              value={q.correct_answer}
+                              onChange={e => updateQuestion(idx, { correct_answer: e.target.value })}
+                              placeholder="Enter the correct answer"
+                              className="mt-1 text-sm h-8"
+                            />
+                          </div>
+                        )}
+                        <div className="w-20">
+                          <Label className="text-xs">Points</Label>
+                          <Input type="number" value={q.points} onChange={e => updateQuestion(idx, { points: parseInt(e.target.value, 10) || 1 })} className="mt-1 h-8 text-sm" min={1} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+                {type === 'mixed' ? (
+                  <div className="flex gap-2 pt-2">
+                    <Button variant="outline" size="sm" className="rounded-full text-xs h-7 border-white/[0.1]" onClick={() => addQuestion('multiple_choice')}>
+                      <ListChecks className="w-3 h-3 mr-1" /> + Multiple Choice
+                    </Button>
+                    <Button variant="outline" size="sm" className="rounded-full text-xs h-7 border-white/[0.1]" onClick={() => addQuestion('essay')}>
+                      <PenLine className="w-3 h-3 mr-1" /> + Essay
+                    </Button>
+                    <Button variant="outline" size="sm" className="rounded-full text-xs h-7 border-white/[0.1]" onClick={() => addQuestion('identification')}>
+                      <Type className="w-3 h-3 mr-1" /> + Identification
+                    </Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" size="sm" className="rounded-full text-xs h-7 border-white/[0.1]" onClick={() => addQuestion()}>
+                    <Plus className="w-3 h-3 mr-1" /> Add Question
+                  </Button>
+                )}
+                <DialogFooter className="gap-2 pt-2">
+                  <Button variant="ghost" size="sm" onClick={() => setStep('form')} className="rounded-full">
+                    Back
+                  </Button>
+                  <Button onClick={handleCreate} disabled={creating || questions.filter(q => q.question_text.trim()).length === 0} className="bg-primary hover:bg-primary/90 rounded-full">
                     {creating && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
-                    Create
+                    Create {selectedMeta.label}
                   </Button>
                 </DialogFooter>
               </>
@@ -376,6 +600,7 @@ function QuizCard({ quiz, students, onDelete, onRefresh }: { quiz: Quiz; student
   const [assignOpen, setAssignOpen] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<number[]>([]);
   const [assigning, setAssigning] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   const handleAssign = async () => {
     if (selectedStudents.length === 0) return;
@@ -418,17 +643,27 @@ function QuizCard({ quiz, students, onDelete, onRefresh }: { quiz: Quiz; student
               <span className="flex items-center gap-1"><Users className="w-3 h-3" />{quiz.assignment_count ?? 0} assigned</span>
               <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3" />{quiz.submitted_count ?? 0} submitted</span>
               {quiz.time_limit_mins && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{quiz.time_limit_mins}m</span>}
+              {quiz.due_date && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Due {new Date(quiz.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <Link href={`/editor?quizId=${quiz.id}`}>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-white/5">
-                <Eye className="w-3.5 h-3.5" />
-              </Button>
-            </Link>
+            <Button
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0 rounded-full hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors"
+              title="Edit Content"
+              onClick={() => gooeyToast.info('Edit mode coming soon!')}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </Button>
             <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
               <DialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-white/5">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-8 w-8 p-0 rounded-full hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors"
+                  title="Assign to Students"
+                >
                   <UserPlus className="w-3.5 h-3.5" />
                 </Button>
               </DialogTrigger>
@@ -437,6 +672,26 @@ function QuizCard({ quiz, students, onDelete, onRefresh }: { quiz: Quiz; student
                   <DialogTitle className="font-headline">Assign: {quiz.title}</DialogTitle>
                   <DialogDescription>Select students to assign this quiz to.</DialogDescription>
                 </DialogHeader>
+                {students.length > 0 && (
+                  <div className="flex items-center justify-between pb-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-3 text-[11px] rounded-full border-white/[0.1]"
+                      onClick={() => {
+                        if (selectedStudents.length === students.length) {
+                          setSelectedStudents([]);
+                        } else {
+                          setSelectedStudents(students.map(s => s.id));
+                        }
+                      }}
+                    >
+                      <CheckSquare className="w-3 h-3 mr-1" />
+                      {selectedStudents.length === students.length ? 'Deselect All' : 'Select All'}
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">{selectedStudents.length}/{students.length} selected</span>
+                  </div>
+                )}
                 <div className="max-h-60 overflow-y-auto space-y-2 py-2">
                   {students.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">No students registered yet.</p>
@@ -467,6 +722,43 @@ function QuizCard({ quiz, students, onDelete, onRefresh }: { quiz: Quiz; student
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            {quiz.status !== 'closed' ? (
+              <Button
+                variant="ghost" size="sm"
+                className="h-8 w-8 p-0 rounded-full hover:bg-orange-500/10 text-muted-foreground hover:text-orange-400"
+                disabled={closing}
+                onClick={async () => {
+                  setClosing(true);
+                  try {
+                    await api.updateQuiz(quiz.id, { status: 'closed' });
+                    gooeyToast.success('Content closed');
+                    onRefresh();
+                  } catch { gooeyToast.error('Failed to close'); }
+                  finally { setClosing(false); }
+                }}
+                title="Close — makes this inaccessible to students"
+              >
+                {closing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
+              </Button>
+            ) : (
+              <Button
+                variant="ghost" size="sm"
+                className="h-8 w-8 p-0 rounded-full hover:bg-green-500/10 text-muted-foreground hover:text-green-400"
+                disabled={closing}
+                onClick={async () => {
+                  setClosing(true);
+                  try {
+                    await api.updateQuiz(quiz.id, { status: 'published' });
+                    gooeyToast.success('Content re-opened');
+                    onRefresh();
+                  } catch { gooeyToast.error('Failed to reopen'); }
+                  finally { setClosing(false); }
+                }}
+                title="Reopen — makes this accessible to students again"
+              >
+                {closing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+              </Button>
+            )}
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-red-500/10 text-muted-foreground hover:text-red-400" onClick={() => onDelete(quiz.id)}>
               <Trash2 className="w-3.5 h-3.5" />
             </Button>
@@ -660,6 +952,8 @@ function MaterialsTab({ materials, onRefresh }: { materials: Material[]; onRefre
 /* ── Students Tab ──────────────────────────────────────────────────────────── */
 
 function StudentsTab({ students }: { students: StudentProfile[] }) {
+  const router = useRouter();
+
   if (students.length === 0) {
     return <EmptyState icon={<Users />} text="No students registered yet." />;
   }
@@ -669,7 +963,11 @@ function StudentsTab({ students }: { students: StudentProfile[] }) {
       <h2 className="text-sm font-headline font-semibold text-muted-foreground uppercase tracking-wide mb-4">Registered Students</h2>
       <div className="grid gap-3 sm:grid-cols-2">
         {students.map(s => (
-          <Card key={s.id} className="glass border border-white/[0.06]">
+          <Card
+            key={s.id}
+            className="glass border border-white/[0.06] cursor-pointer hover-lift"
+            onClick={() => router.push(`/teacher/analytics?studentId=${s.id}`)}
+          >
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
@@ -679,9 +977,7 @@ function StudentsTab({ students }: { students: StudentProfile[] }) {
                   <p className="text-sm font-semibold truncate">{s.full_name || 'Unnamed'}</p>
                   <p className="text-[11px] text-muted-foreground truncate">{s.email}</p>
                 </div>
-                <Badge variant="outline" className="text-[10px]">
-                  {s.baseline_sample_count} samples
-                </Badge>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </div>
             </CardContent>
           </Card>
